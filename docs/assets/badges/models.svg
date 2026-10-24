@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="138" height="20" viewBox="0 0 138 20" role="img" aria-label="HuggingFace: JAM">
+  <title>HuggingFace: JAM</title>
+  <linearGradient id="s" x2="0" y2="100%"><stop offset="0" stop-color="#bbb" stop-opacity=".1"/><stop offset="1" stop-opacity=".1"/></linearGradient>
+  <clipPath id="r"><rect width="138" height="20" rx="3" fill="#fff"/></clipPath>
+  <g clip-path="url(#r)">
+    <path fill="#555" d="M0 0h103v20H0z"/>
+    <path fill="#d3b915" d="M103 0h35v20H103z"/>
+    <path fill="url(#s)" d="M0 0h138v20H0z"/>
+  </g>
+  <g fill="#fff" text-anchor="middle" font-family="Verdana,Geneva,DejaVu Sans,sans-serif" font-size="11">
+    <text x="12" y="14" font-family="Apple Color Emoji,Segoe UI Emoji,Noto Color Emoji,sans-serif" font-size="12">🤗</text>
+    <text x="58" y="15" fill="#010101" fill-opacity=".3">HuggingFace</text>
+    <text x="58" y="14">HuggingFace</text>
+    <text x="120.5" y="15" fill="#010101" fill-opacity=".3">JAM</text>
+    <text x="120.5" y="14">JAM</text>
+  </g>
+</svg>

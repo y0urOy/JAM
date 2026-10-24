@@ -1,0 +1,45 @@
+# @package _global_
+# RoboTwin transfer of the LIBERO single-layer recipe {single layer 18, h1536
+# transformer head (~75.5M), lambda 0.6, per_frame, EQUAL weights, offsets [0,1,2],
+# NO action stream, no video co-training} on the official RoboTwin schedule
+# (5 epochs, batch 16, cosine 1e-4). The cache stores all 3 frames, so offsets can
+# be changed at train time without re-extraction.
+# target_cache_roots: set via CLI once extraction is done -> teacher never loaded.
+
+defaults:
+  - override /data: robotwin
+  - override /model: jam_wan_foresight_bplus
+  - _self_
+
+# dataloading (8 workers measured fastest for RoboTwin)
+batch_size: 16
+num_workers: 8
+
+model:
+  mot_checkpoint_mixed_attn: false   # robotwin speed-priority, same as uncond baseline
+  foresight:
+    layers: [18]
+    encoder_layers: [18]
+    action_layers: null            # no action stream
+    offsets: [0, 1, 2]
+    offset_weights: null           # equal (not far-tilt)
+    lambda_foresight: 0.6
+    projector_type: transformer
+    projector_hidden_dim: 1536
+    projector_ffn_dim: 6144
+    projector_num_layers: 2
+    target_cache_roots: null       # e.g. [/path/to/artifacts/fs_cache_robotwin,./fs_cache_robotwin]
+
+# scheduler — matches robotwin_uncond official recipe
+lr_scheduler_type: "cosine"
+learning_rate: 1e-4
+num_epochs: 5
+max_steps: null
+log_every: 10
+save_every: 2500
+eval_every: 500
+
+# training
+gradient_accumulation_steps: 1
+weight_decay: 1e-2
+resume: null

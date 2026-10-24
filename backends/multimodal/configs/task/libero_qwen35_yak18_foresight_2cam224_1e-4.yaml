@@ -1,0 +1,79 @@
+# @package _global_
+
+defaults:
+  - override /data: libero_2cam
+  - override /model: jam_qwen35_yak18_foresight
+  - _self_
+
+data:
+  train:
+    num_frames: 17
+    endpoint_frames_only: true
+    processor:
+      image_obs_steps: 2
+    video_augmentation:
+      _target_: jam_multimodal.datasets.lerobot.transforms.image.VideoAugmentation
+      p: 0.65
+      augment_types: [corrupt_only, color_only, both, both]
+      color_jitter:
+        brightness: 0.3
+        contrast: 0.3
+        saturation: 0.25
+        hue: 0.04
+      gamma:
+        range: [0.8, 1.25]
+      gaussian_noise:
+        std: 0.015
+      random_resized_crop:
+        scale: [0.92, 1.0]
+        ratio: preserve
+      rotate:
+        degrees: 8.0
+        fill: mean
+      exposure:
+        ev_range: [-0.25, 0.25]
+    require_text_cache: false
+    qwen_text_cache_dir: null
+    lerobot_video_backend: pyav
+
+model:
+  predictor_type: imagewam_transformer
+  loss:
+    lambda_foresight: 0.3
+  foresight:
+    layer: 13
+    frame_offsets: [4]
+
+# Same data, seed, global batch, LR and 10-epoch budget as the Qwen MoT24 and
+# Ovis future-only comparison runs.
+batch_size: 16
+num_workers: 2
+prefetch_factor: 2
+persistent_workers: false
+dataloader_multiprocessing_context: spawn
+
+learning_rate: 1.0e-4
+optimizer_foreach: true
+optimizer_max_group_numel: 1000000000
+lr_scheduler_type: cosine
+warmup_steps: null
+num_epochs: 10
+max_steps: 21700
+log_every: 10
+save_every: 0
+save_full_state: false
+keep_latest_state_only: true
+eval_every: 0
+eval_num_samples: 1
+rank_timer_every: 0
+
+gradient_accumulation_steps: 1
+mixed_precision: bf16
+weight_decay: 1.0e-2
+resume: null
+
+wandb:
+  enabled: false
+  workspace: null
+  project: jam_qwen35
+  name: libero_qwen35_strict_yak18_epaug_f4_l13_lambda03_21k7

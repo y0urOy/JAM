@@ -1,0 +1,26 @@
+# @package _global_
+
+# ImageWAM evaluation profile for the official LIBERO-Plus classification.
+# The policy/inference settings match the reproduced Ovis-U1 LIBERO runs; only
+# result I/O and video capture are streamlined for the 10,030 one-trial tasks.
+defaults:
+  - sim_libero
+  - _self_
+
+EVALUATION:
+  num_trials: 1
+  num_steps_wait: 30
+  replan_steps: 8
+  action_horizon: 16
+  binarize_gripper: true
+  use_action_ensembler: false
+  visualize_future_video: false
+  save_rollout_video: false
+  show_progress: false
+  save_resolved_eval_config: false
+  canonical_result_names: true
+  atomic_result_writes: true
+  exact_output_dir: true
+  disable_foresight: true
+  mmap_checkpoint: true
+

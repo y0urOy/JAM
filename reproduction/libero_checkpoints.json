@@ -1,0 +1,182 @@
+{
+  "schema_version": 1,
+  "repository": {
+    "repo_id": "y0urOy/JAM",
+    "url": "https://huggingface.co/y0urOy/JAM",
+    "layout": "one folder per policy; checkpoint.path is relative to the folder, initialization_files[].path_in_repo to the repository root",
+    "source_pin": "Each folder's model_manifest.json pins the exact commit of this repository that loads the policy; release.py checks it."
+  },
+  "models": [
+    {
+      "name": "JAM (Wan)",
+      "repo_id": "y0urOy/JAM",
+      "path_in_repo": "libero/wan",
+      "checkpoint": {
+        "path": "checkpoints/step_020000.pt",
+        "bytes": 12183400953,
+        "sha256": "c2ef55bc84ea93f0af100ffae65db505d3d9f368dbfd319a95c0ad47415471fc",
+        "step": 20000,
+        "format": "original PyTorch weights-only checkpoint"
+      },
+      "recipe": "wan-jam",
+      "dataset_stats_sha256": "8d8a38601513ae3421d9181ddfc72f7bc26e402b5447fef9a8b2e76fbd8b9e39",
+      "inference": {
+        "recipe": "wan-jam",
+        "backend": "wan",
+        "precision": "bf16",
+        "action_dim": 7,
+        "proprio_dim": 8,
+        "cameras": [
+          "agent",
+          "wrist"
+        ],
+        "per_camera_size": [
+          224,
+          224
+        ],
+        "camera_concat": "horizontal",
+        "action_horizon": 32,
+        "replan_steps": 10,
+        "denoising_steps": 10,
+        "batch_size": 1,
+        "seed": 42,
+        "overrides": [
+          "model.action_dit_pretrained_path=null",
+          "EVALUATION.action_horizon=32",
+          "EVALUATION.replan_steps=10",
+          "EVALUATION.num_inference_steps=10"
+        ],
+        "notes": [
+          "Use the original backend processor and this dataset_stats.json.",
+          "No image/video generation or foresight teacher is needed during action inference."
+        ]
+      },
+      "initialization_files": [
+        {
+          "path_in_repo": "libero/wan/initialization/ActionDiT_linear_interp_Wan22_alphascale_1024hdim.pt",
+          "bytes": 2042025883,
+          "sha256": "7bd65e1986accaaf2e8dd5e59b5e98ef348d7c2f1d88ab2df010eb954a441445",
+          "role": "original action-expert initialization for reproducing training, used as MODEL_ROOT/init/wan_action.pt; not required for evaluation"
+        }
+      ],
+      "use": "Download the path_in_repo folder and follow its README.md and release.py; they keep the original checkpoint settings."
+    },
+    {
+      "name": "JAM (Ovis-U1)",
+      "repo_id": "y0urOy/JAM",
+      "path_in_repo": "libero/ovis-u1",
+      "checkpoint": {
+        "path": "checkpoints/step_021700.pt",
+        "bytes": 4370666745,
+        "sha256": "5129f2cb2133ffc26d2f7f498573828c45eed639a0239bc98177afa59fc7f8ab",
+        "step": 21700,
+        "format": "original PyTorch weights-only checkpoint"
+      },
+      "recipe": "ovis-jam",
+      "dataset_stats_sha256": "4d3114239c01c04458262ac927adf4d220543619e82c5c422f2ba08157e3c32e",
+      "inference": {
+        "recipe": "ovis-jam",
+        "backend": "multimodal",
+        "precision": "bf16",
+        "action_dim": 7,
+        "proprio_dim": 8,
+        "cameras": [
+          "agent",
+          "wrist"
+        ],
+        "per_camera_size": [
+          224,
+          224
+        ],
+        "camera_concat": "horizontal",
+        "action_horizon": 16,
+        "replan_steps": 8,
+        "denoising_steps": 10,
+        "batch_size": 1,
+        "seed": 42,
+        "overrides": [
+          "model.action_dit_pretrained_path=null",
+          "EVALUATION.action_horizon=16",
+          "EVALUATION.replan_steps=8",
+          "EVALUATION.num_inference_steps=10"
+        ],
+        "notes": [
+          "Use the original backend processor and this dataset_stats.json.",
+          "No image/video generation or foresight teacher is needed during action inference."
+        ]
+      },
+      "initialization_files": [
+        {
+          "path_in_repo": "libero/ovis-u1/initialization/ovis_action_7d.pt",
+          "bytes": 4146809153,
+          "sha256": "47b150795880e339e0ae453b50ee8385a4388a4c5ddac0c1172db2931bfc4d35",
+          "role": "original action-expert initialization for reproducing training; not required for evaluation"
+        }
+      ],
+      "use": "Download the path_in_repo folder and follow its README.md and release.py; they keep the original checkpoint settings."
+    },
+    {
+      "name": "JAM (Qwen3.5-2B)",
+      "repo_id": "y0urOy/JAM",
+      "path_in_repo": "libero/qwen3.5-2b",
+      "checkpoint": {
+        "path": "checkpoints/step_021700.pt",
+        "bytes": 7250202353,
+        "sha256": "35361c21c14df238c20b26da23aa06faeca1a83dfdf8d90094cb10db84df40e2",
+        "step": 21700,
+        "format": "original PyTorch weights-only checkpoint"
+      },
+      "recipe": "qwen-jam",
+      "dataset_stats_sha256": "30f81ad7d5076e97323e3328bce003e01a04cb21327b5bacd21bb72846768638",
+      "inference": {
+        "recipe": "qwen-jam",
+        "backend": "multimodal",
+        "precision": "bf16",
+        "action_dim": 7,
+        "proprio_dim": 8,
+        "cameras": [
+          "agent",
+          "wrist"
+        ],
+        "per_camera_size": [
+          224,
+          224
+        ],
+        "camera_concat": "horizontal",
+        "action_horizon": 16,
+        "replan_steps": 10,
+        "denoising_steps": 10,
+        "batch_size": 1,
+        "seed": 42,
+        "overrides": [
+          "model.action_dit_pretrained_path=null",
+          "EVALUATION.action_horizon=16",
+          "EVALUATION.replan_steps=10",
+          "EVALUATION.num_inference_steps=10",
+          "model.tensor_native_preprocessing=false",
+          "model.action_dit_config.skip_discarded_prefix_mlp=false",
+          "model.action_dit_config.skip_discarded_prefix_query=false"
+        ],
+        "notes": [
+          "Use the original backend processor and this dataset_stats.json.",
+          "No image/video generation or foresight teacher is needed during action inference."
+        ]
+      },
+      "initialization_files": [],
+      "use": "Download the path_in_repo folder and follow its README.md and release.py; they keep the original checkpoint settings."
+    }
+  ],
+  "checks": [
+    "Checkpoint SHA256 and CPU weights-only loading",
+    "All floating-point checkpoint tensors finite",
+    "Matching configuration, normalization statistics and recorded per-task results",
+    "CPU dry-runs of the LIBERO and LIBERO-Plus evaluation commands",
+    "Each folder downloads anonymously and passes release.py verify --metadata-only"
+  ],
+  "not_run": [
+    "New training",
+    "GPU inference",
+    "New simulation rollouts"
+  ],
+  "recorded_results_note": "The results in each model folder are the recorded paper results; they were not rerun."
+}

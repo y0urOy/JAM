@@ -1,0 +1,72 @@
+\begin{figure}[!htbp]
+\centering
+\input{Figures/data/liberoplus_pairs.tex}
+\input{Figures/data/liberoplus_pairs_fastwam.tex}
+\definecolor{pairbase}{HTML}{626B98}
+\definecolor{pairjam}{HTML}{AD7158}
+\definecolor{pairink}{HTML}{293340}
+\definecolor{pairmuted}{HTML}{7A8590}
+\definecolor{pairgrid}{HTML}{DCE1E6}
+\begin{tikzpicture}[x=1cm,y=1cm,font=\footnotesize]
+  \tikzset{
+    paneltitle/.style={font=\small\bfseries,anchor=south,text=pairink,inner sep=0pt},
+    ticklabel/.style={font=\scriptsize,text=pairmuted,anchor=north,inner sep=0pt},
+    catlabel/.style={font=\scriptsize,anchor=east,text=pairink,inner sep=0pt},
+    value/.style={font=\scriptsize,inner sep=1pt},
+  }
+  \def\rowA{3.6}\def\rowB{3.1}\def\rowC{2.6}\def\rowD{2.1}\def\rowE{1.6}\def\rowF{1.1}\def\rowG{0.6}
+  \def\ylo{0.32}\def\yhi{3.88}
+
+  \foreach \cx in {4.95,11.15}{
+    \foreach \dx/\tick in {0.0/0,0.66/20,1.32/40,1.98/60}{
+      \draw[pairgrid,line width=0.35pt] ({\cx-\dx},\ylo)--({\cx-\dx},\yhi);
+      \draw[pairgrid,line width=0.35pt] ({\cx+\dx},\ylo)--({\cx+\dx},\yhi);
+      \node[ticklabel] at ({\cx-\dx},{\ylo-0.06}) {\tick};
+      \ifdim\dx pt>0pt
+        \node[ticklabel] at ({\cx+\dx},{\ylo-0.06}) {\tick};
+      \fi
+    }
+  }
+
+  \newcommand{\pairbar}[4]{%
+    \pgfmathsetmacro{\leftbar}{0.033*#3}%
+    \pgfmathsetmacro{\rightbar}{0.033*#4}%
+    \fill[pairbase] ({#2-\leftbar},{#1-0.155}) rectangle (#2,{#1+0.155});
+    \fill[pairjam] (#2,{#1-0.155}) rectangle ({#2+\rightbar},{#1+0.155});
+    \node[value,anchor=east,text=pairbase] at ({#2-\leftbar-0.05},#1) {#3};
+    \node[value,anchor=west,text=pairjam] at ({#2+\rightbar+0.05},#1) {#4};
+  }
+
+  \foreach \y/\lab in {\rowA/Camera,\rowB/{Robot initial state},\rowC/Language,\rowD/Lighting,\rowE/Background,\rowF/{Sensor noise},\rowG/Layout}{
+    \node[catlabel] at (2.4,\y) {\lab};
+  }
+
+  \pairbar{\rowA}{4.95}{\PairCameraBaselineOnly}{\PairCameraCandidateOnly}
+  \pairbar{\rowB}{4.95}{\PairRobotBaselineOnly}{\PairRobotCandidateOnly}
+  \pairbar{\rowC}{4.95}{\PairLanguageBaselineOnly}{\PairLanguageCandidateOnly}
+  \pairbar{\rowD}{4.95}{\PairLightBaselineOnly}{\PairLightCandidateOnly}
+  \pairbar{\rowE}{4.95}{\PairBackgroundBaselineOnly}{\PairBackgroundCandidateOnly}
+  \pairbar{\rowF}{4.95}{\PairNoiseBaselineOnly}{\PairNoiseCandidateOnly}
+  \pairbar{\rowG}{4.95}{\PairLayoutBaselineOnly}{\PairLayoutCandidateOnly}
+
+  \pairbar{\rowA}{11.15}{\FastPairCameraBaselineOnly}{\FastPairCameraCandidateOnly}
+  \pairbar{\rowB}{11.15}{\FastPairRobotBaselineOnly}{\FastPairRobotCandidateOnly}
+  \pairbar{\rowC}{11.15}{\FastPairLanguageBaselineOnly}{\FastPairLanguageCandidateOnly}
+  \pairbar{\rowD}{11.15}{\FastPairLightBaselineOnly}{\FastPairLightCandidateOnly}
+  \pairbar{\rowE}{11.15}{\FastPairBackgroundBaselineOnly}{\FastPairBackgroundCandidateOnly}
+  \pairbar{\rowF}{11.15}{\FastPairNoiseBaselineOnly}{\FastPairNoiseCandidateOnly}
+  \pairbar{\rowG}{11.15}{\FastPairLayoutBaselineOnly}{\FastPairLayoutCandidateOnly}
+
+  \foreach \cx in {4.95,11.15}{
+    \draw[pairmuted,line width=0.5pt] (\cx,\ylo)--(\cx,\yhi);
+  }
+
+  \node[paneltitle] at (4.95,4.05) {(a) ImageWAM (Ovis-U1)};
+  \node[paneltitle] at (11.15,4.05) {(b) FastWAM (Wan)};
+
+  \node[font=\scriptsize,text=pairink,anchor=north,inner sep=0pt] at ([yshift=-0.22cm]current bounding box.south)
+    {\raisebox{0.3pt}{\textcolor{pairbase}{\rule{0.32cm}{0.16cm}}}\;Baseline\qquad\raisebox{0.3pt}{\textcolor{pairjam}{\rule{0.32cm}{0.16cm}}}\;\modelname{}};
+\end{tikzpicture}%
+\caption{Paired LIBERO-Plus outcomes on \PairTaskCount{} shared tasks. Left bars count tasks solved only by the baseline; right bars count tasks solved only by \modelname{}. Panel a uses Ovis-U1, and panel b uses Wan with VAE-direct $[1,2]$ targets.}
+\label{fig:robustnesspairs}
+\end{figure}

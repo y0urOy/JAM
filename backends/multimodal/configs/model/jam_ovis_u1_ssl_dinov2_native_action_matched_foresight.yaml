@@ -1,0 +1,67 @@
+# Parameter-matched DINO-native ImageWAM policy.
+#
+# Visual student: trainable DINOv2-B/14, 12 layers, hidden 768.
+# Action expert: 24-layer ActionDiTDINO, hidden 1536, 12 heads/head_dim 128.
+# Each DINO layer is widened once by 768->1536 and conditions two consecutive
+# action blocks.  The complete action expert has 1,043,345,415 parameters,
+# within +0.18% of Ovis ActionDiTYak's 1,041,423,367.
+# Teacher: frozen DINOv2-B/14 on the future endpoint t+16.
+_target_: jam_multimodal.runtime.create_jam_ovis_u1
+ovis_u1_model_path: ???
+load_condition_encoder: true
+proprio_dim: null
+mot_checkpoint_mixed_attn: false
+mot_gqa_implementation: repeat
+mot_force_flash_attention: false
+action_dit_pretrained_path: null
+
+# Temporary construction-only Yak topology. The native route replaces it
+# before training, and no Yak ActionDiT checkpoint is consumed.
+action_dit_config:
+  action_dim: ${data.train.processor.action_output_dim}
+  residual_dim: 1536
+  num_heads: 12
+  num_layers_double: 6
+  num_layers_single: 12
+  mlp_ratio: 4.0
+  qkv_bias: true
+  max_action_horizon: 64
+  use_gradient_checkpointing: false
+
+video_scheduler:
+  train_shift: 5.0
+  infer_shift: 5.0
+  num_train_timesteps: 1000
+action_scheduler:
+  train_shift: 5.0
+  infer_shift: 5.0
+  num_train_timesteps: 1000
+
+loss:
+  lambda_video: 0.0
+  lambda_action: 1.0
+
+ssl_vision:
+  enabled: true
+  model_id: checkpoints/dinov2-base
+  local_files_only: true
+  image_size: 224
+  num_views: 2
+  attn_implementation: ${oc.env:IMAGEWAM_SSL_ATTN_IMPLEMENTATION,sdpa}
+  gradient_checkpointing: false
+  action_fusion_type: native_dino24_mot
+  native_action:
+    text_dim: 4096
+    max_action_horizon: 64
+    initialize_from_dino: true
+
+foresight:
+  enabled: true
+  load_teacher: true
+  teacher_type: external_ssl
+  offsets: [1]
+  lambda_foresight: 0.3
+  projector_hidden_dim: 384
+  projector_ffn_dim: 1536
+  projector_num_layers: 2
+  projector_num_heads: 6

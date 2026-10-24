@@ -1,0 +1,20 @@
+\begin{table}[htbp]
+\vspace{-4mm}
+\caption{Fixed-checkpoint comparisons with generative baselines, using VAE-direct $[1,2]$ targets for Wan and pretrained Yak $[1]$ for Ovis-U1. $\Delta$ is the gain in percentage points; counts are successes unique to each policy.}
+\vspace{2mm}
+\label{tab:pairedstats}
+\centering
+\footnotesize
+\setlength{\tabcolsep}{4pt}
+\begin{tabular}{@{}llrccc@{}}
+\toprule
+Policy family & Benchmark & $\Delta$ & 95\% task-bootstrap CI & Baseline only / \modelname{} only & McNemar $p$ \\
+\midrule
+FastWAM & LIBERO & $+1.15$ & $[+0.20,+2.10]$ & $30/53$ & $0.015$ \\
+ImageWAM & LIBERO & $+3.85$ & $[+1.00,+7.40]$ & $42/119$ & $1.01\!\times\!10^{-9}$ \\
+FastWAM & LIBERO-Plus & $+9.23$ & $[+6.84,+11.69]$ & $111/250$ & $1.91\!\times\!10^{-13}$ \\
+ImageWAM & LIBERO-Plus & $+14.67$ & $[+12.15,+17.13]$ & $89/310$ & $9.69\!\times\!10^{-30}$ \\
+\bottomrule
+\end{tabular}
+\vspace{-2mm}
+\end{table}

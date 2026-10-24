@@ -1,0 +1,63 @@
+# Foresight variant of jam_ovis_u1: generation loss OFF, Wan-recipe
+# foresight alignment ON (configurable frozen Yak teacher, cond-token hiddens, cosine).
+# Only deltas vs jam_ovis_u1.yaml: loss.lambda_video=0 + the foresight block.
+_target_: jam_multimodal.runtime.create_jam_ovis_u1
+ovis_u1_model_path: ???
+load_condition_encoder: true
+proprio_dim: null
+mot_checkpoint_mixed_attn: true
+mot_gqa_implementation: repeat
+mot_force_flash_attention: false
+action_dit_pretrained_path: null
+action_dit_config:
+  action_dim: ${data.train.processor.action_output_dim}
+  residual_dim: 1536
+  num_heads: 12
+  num_layers_double: 6
+  num_layers_single: 12
+  mlp_ratio: 4.0
+  qkv_bias: true
+  max_action_horizon: 64
+  use_gradient_checkpointing: ${model.mot_checkpoint_mixed_attn}
+video_scheduler:
+  train_shift: 5.0
+  infer_shift: 5.0
+  num_train_timesteps: 1000
+action_scheduler:
+  train_shift: 5.0
+  infer_shift: 5.0
+  num_train_timesteps: 1000
+loss:
+  lambda_video: 0.0   # generation branch OFF (foresight-only recipe)
+  lambda_action: 1.0
+foresight:
+  enabled: true
+  # Teacher source. Keep the historical pretrained self-teacher as the default;
+  # ablations can select frozen_random without changing existing runs.
+  teacher_mode: frozen_pretrained
+  # Used only by frozen_random. Construction is RNG-isolated, so changing the
+  # teacher does not perturb projector initialization or the training stream.
+  teacher_random_seed: 42
+  # drop_target_tokens (default ON): drop the (clean) target tokens from the STUDENT's video
+  # stream — the student never sees the future; it is only asked to MATCH the
+  # teacher's view of it. Exact by mask analysis (cond/text/action never attend
+  # target tokens), and the dropped tokens are no longer computed.
+  drop_target_tokens: true
+  # Capture after the k-th video block (1-indexed) of 6 double + 12 single = 18.
+  # Wan-recipe depth ratio: 18/30 = 60% -> 11/18 here. encoder_layer = same depth.
+  layer: 11
+  encoder_layer: 11
+  # Frozen teacher only needs the layer-11 feature. Stop there instead of
+  # wasting compute on teacher layers 12-18; the student still runs all 18.
+  teacher_early_exit: true
+  # 0 = current frame (cond positions), 1 = future frame (target positions).
+  # The Wan recipe uses [0,1,2] over current + 2 future latent frames; the
+  # image pair only has one future timepoint -> [0, 1], equal weights.
+  offsets: [0, 1]
+  lambda_foresight: 0.6
+  # Wan-recipe projector scaled 3072->1536: shared pre-LN transformer trunk at
+  # half model dim + per-target Linear heads (head_dim 64 preserved).
+  projector_hidden_dim: 768
+  projector_ffn_dim: 3072
+  projector_num_layers: 2
+  projector_num_heads: 12

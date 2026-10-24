@@ -1,0 +1,43 @@
+# @package _global_
+# Encoder ablation: the vff4/[0,1,2,3]/single18 recipe, replacing only the fixed
+# pretrained Wan target with an online EMA of the policy video expert.
+# video_cotrain remains false: the EMA teacher replaces the target; no generative
+# video loss is added.
+defaults:
+  - override /data: libero_2cam
+  - override /model: jam_wan_foresight_bplus
+  - _self_
+
+batch_size: 16
+num_workers: 2
+
+data:
+  train:
+    video_future_frames: 4      # 13 video frames -> 4 latent; action window unchanged (32)
+
+model:
+  mot_checkpoint_mixed_attn: true
+  foresight:
+    teacher_mode: online_ema
+    teacher_ema_decay: 0.995
+    layers: [18]
+    encoder_layers: [18]
+    action_layers: null
+    offsets: [0, 1, 2, 3]
+    offset_weights: null
+    lambda_foresight: 0.6
+    projector_type: transformer
+    projector_hidden_dim: 1536
+    projector_ffn_dim: 6144
+    projector_num_layers: 2
+
+lr_scheduler_type: "cosine"
+learning_rate: 1e-4
+num_epochs: 10
+max_steps: null
+log_every: 10
+save_every: 10000
+eval_every: 0
+gradient_accumulation_steps: 1
+weight_decay: 1e-2
+resume: null

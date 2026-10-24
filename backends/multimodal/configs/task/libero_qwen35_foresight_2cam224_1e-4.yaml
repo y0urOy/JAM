@@ -1,0 +1,98 @@
+# @package _global_
+
+defaults:
+  - override /data: libero_2cam
+  - override /model: jam_qwen35_foresight
+  - _self_
+
+data:
+  train:
+    # Match the native ImageWAM endpoint-pair horizon: t..t+16 contains
+    # 16 actions. With action_video_freq_ratio=4 this emits grid [0..4].
+    num_frames: 17
+    # Match the input path of the Ovis recipe: decode only the two frames
+    # actually consumed by Qwen. The model maps physical positions [0,1] back
+    # to logical RGB-grid offsets [0,4], so checkpoint/foresight semantics stay
+    # unchanged. Set this false together with processor.image_obs_steps=17 to
+    # retain the full-grid debugging/ablation entry.
+    endpoint_frames_only: true
+    processor:
+      image_obs_steps: 2
+    # Exact augmentation of the Ovis recipe. A single sampled transform is
+    # shared across time within each camera clip; the two cameras are augmented
+    # independently, matching VideoAugmentation's established behavior.
+    video_augmentation:
+      _target_: jam_multimodal.datasets.lerobot.transforms.image.VideoAugmentation
+      p: 0.65
+      augment_types: [corrupt_only, color_only, both, both]
+      color_jitter:
+        brightness: 0.3
+        contrast: 0.3
+        saturation: 0.25
+        hue: 0.04
+      gamma:
+        range: [0.8, 1.25]
+      gaussian_noise:
+        std: 0.015
+      random_resized_crop:
+        scale: [0.92, 1.0]
+        ratio: preserve
+      rotate:
+        degrees: 8.0
+        fill: mean
+      exposure:
+        ev_range: [-0.25, 0.25]
+    # Qwen consumes raw prompts and RGB; no Wan/Ovis/Qwen text cache is used.
+    require_text_cache: false
+    qwen_text_cache_dir: null
+    lerobot_video_backend: pyav
+
+model:
+  predictor_type: imagewam_transformer
+  loss:
+    # Same foresight weight as the Ovis recipe.
+    lambda_foresight: 0.3
+  foresight:
+    layer: 13
+    # Future-only target: teacher uses grid 0 as context; loss uses only grid 4.
+    frame_offsets: [4]
+
+# 16 per GPU x 8 GPUs, grad accumulation 1 => global batch 128.
+batch_size: 16
+num_workers: 2
+prefetch_factor: 2
+# Recreate PyAV workers at each epoch boundary; long runs with persistent
+# PyAV workers can hit native worker crashes (SIGSEGV).
+persistent_workers: false
+dataloader_multiprocessing_context: spawn
+
+learning_rate: 1.0e-4
+optimizer_foreach: true
+optimizer_max_group_numel: 1000000000
+lr_scheduler_type: cosine
+warmup_steps: null
+# ceil(277713 samples / global batch 128) = 2170 optimizer steps per epoch;
+# 10 epochs therefore resolve to the same 21,700-step budget as Ovis.
+num_epochs: 10
+max_steps: 21700
+log_every: 10
+# Endpoint-only policy: save_every=0 disables periodic checkpoints, while the
+# trainer still writes step_021700.pt when max_steps is reached. The Qwen
+# checkpoint is about 6.5 GB; DeepSpeed state remains disabled.
+save_every: 0
+save_full_state: false
+keep_latest_state_only: true
+eval_every: 0
+eval_num_samples: 1
+rank_timer_every: 0
+
+gradient_accumulation_steps: 1
+mixed_precision: bf16
+weight_decay: 1.0e-2
+resume: null
+
+wandb:
+  enabled: false
+  workspace: null
+  project: jam_qwen35
+  name: libero_qwen35_iwproj1024_epaug_f4_l13_lambda03_21k7

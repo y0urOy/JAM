@@ -1,0 +1,18 @@
+{
+  "seed": 42,
+  "ratio": 0.15,
+  "task_id_base": 0,
+  "task_count": 1506,
+  "suite_sizes": {
+    "libero_10": 2519,
+    "libero_goal": 2591,
+    "libero_spatial": 2402,
+    "libero_object": 2518
+  },
+  "sampling": "random.Random(f'42:{suite}').sample(range(n), ceil(n * 0.15)); sorted within suite",
+  "task_manifest_sha256": "0278f693b29cb6f133fa814b7cbc48437f3de7f67b083855804bf37321d7f36a",
+  "trials_per_task": 1,
+  "aggregation": "micro success over the 1506 selected perturbed tasks",
+  "libero_plus_commit": "4976dc30028e805ff8094b55501d532c48fec182",
+  "note": "The manifest contains task identities only. Environment assets come from upstream and are not bundled."
+}

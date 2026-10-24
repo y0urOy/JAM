@@ -1,0 +1,16 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "jam-multimodal"
+version = "0.2.0"
+description = "JAM: Ovis-U1, FLUX.2, DINOv2 and Qwen3.5 policy backend"
+requires-python = ">=3.10"
+dependencies = ["torch>=2.7.1", "torchvision>=0.22.1", "hydra-core==1.3.2", "omegaconf==2.3.0", "einops==0.8.1"]
+
+[tool.setuptools.package-dir]
+"" = "src"
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["jam_multimodal*", "imagewam"]

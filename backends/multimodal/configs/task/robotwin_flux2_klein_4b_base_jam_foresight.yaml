@@ -1,0 +1,73 @@
+# @package _global_
+
+# RoboTwin counterpart of the selected FLUX.2-4B LIBERO pure-foresight recipe.
+# The optimization budget follows the released ImageWAM FLUX.2 RoboTwin
+# checkpoint: 5 complete epochs at global batch 384 (69,900 optimizer steps on
+# the public RoboTwin-2.0 non-idle split), not the LIBERO 34,720-step budget.
+
+defaults:
+  - override /data: robotwin_omnigen2
+  - override /model: jam_flux2_klein_4b_base_foresight
+  - _self_
+
+data:
+  train:
+    # This legacy flag controls the Wan/UMT5 cache, not FLUX.2 Qwen3.  Keep it
+    # false; a non-null qwen_text_cache_dir below is what enables Qwen3 cache
+    # loading (scripts/audit_robotwin_flux2_foresight.py --check-cache verifies
+    # that all 921,032 prompt caches exist).
+    require_text_cache: false
+    qwen_text_cache_dir: ./data/robotwin_flux2_qwen3_4b_len128
+    qwen_context_len: 128
+    qwen_text_cache_format: qwen3_flux2
+  val:
+    # Training-time validation is disabled for the pure-foresight objective,
+    # but keep the split constructible for audits and explicit diagnostics.
+    require_text_cache: false
+    qwen_text_cache_dir: ${data.train.qwen_text_cache_dir}
+    qwen_context_len: ${data.train.qwen_context_len}
+    qwen_text_cache_format: ${data.train.qwen_text_cache_format}
+    pretrained_norm_stats: ${data.train.pretrained_norm_stats}
+
+# Match the optimizer topology of the released ImageWAM checkpoint exactly:
+# 8 GPUs x b12 x GA4 = global batch 384.
+batch_size: 12
+gradient_accumulation_steps: 4
+num_workers: 8
+prefetch_factor: 1
+persistent_workers: false
+dataloader_multiprocessing_context: spawn
+
+lr_scheduler_type: cosine
+learning_rate: 1.0e-4
+weight_decay: 1.0e-2
+warmup_steps: null
+num_epochs: 5
+max_steps: null
+max_grad_norm: 1.0
+mixed_precision: bf16
+seed: 42
+
+log_every: 10
+gather_metrics_every_step: false
+rank_timer_every: 0
+save_every: 5000
+save_full_state: true
+keep_latest_state_only: true
+eval_every: 0
+resume: null
+
+# Avoid the CUDA foreach AdamW failure mode previously observed with very large
+# flattened parameter groups.  This changes only optimizer implementation, not
+# the AdamW equations or scientific configuration.
+optimizer_foreach: false
+optimizer_max_group_numel: 500000000
+
+model:
+  qwen_context_len: ${data.train.qwen_context_len}
+  proprio_dim: ${data.train.processor.proprio_output_dim}
+
+wandb:
+  enabled: false
+  project: jam_multimodal
+  name: robotwin_flux2_klein_4b_foresight_l15_off1_lam03

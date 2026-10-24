@@ -1,0 +1,57 @@
+_target_: jam_multimodal.runtime.create_jam_flux2_klein
+
+flux2_src_path: /apdcephfs_nj7/share_305204761/alixzhang/flux2
+flux2_model_path: ???
+ae_model_path: ???
+variant: klein-base-9b
+qwen3_model_spec: Qwen/Qwen3-8B
+qwen_context_len: 512
+load_text_encoder: false
+proprio_dim: null
+mot_checkpoint_mixed_attn: true
+mot_gqa_implementation: repeat
+mot_force_flash_attention: false
+pack_proprio_after_text: true
+action_dit_pretrained_path: null
+
+flux2_lora_config:
+  enabled: false
+  rank: 32
+  alpha: 32.0
+  dropout: 0.0
+  save_lora_merged: true
+  save_trainable_only: false
+  target_suffixes:
+    - qkv
+    - proj
+    - linear1
+    - linear2
+    - img_mlp.0
+    - img_mlp.2
+    - txt_mlp.0
+    - txt_mlp.2
+
+action_dit_config:
+  action_dim: ${data.train.processor.action_output_dim}
+  hidden_dim: 1024
+  num_heads: 32
+  attn_head_dim: 128
+  num_layers_double: 8
+  num_layers_single: 24
+  mlp_ratio: 4.0
+  max_action_horizon: 64
+  use_gradient_checkpointing: ${model.mot_checkpoint_mixed_attn}
+
+video_scheduler:
+  train_shift: 5.0
+  infer_shift: 5.0
+  num_train_timesteps: 1000
+
+action_scheduler:
+  train_shift: 5.0
+  infer_shift: 5.0
+  num_train_timesteps: 1000
+
+loss:
+  lambda_video: 0.5
+  lambda_action: 1.0

@@ -1,0 +1,22 @@
+\begin{table}[htbp]
+\vspace{-2mm}
+\caption{Default prediction-head dimensions. Layers, Heads, and FFN describe the shared transformer trunk; Readouts denotes the number of supervised offsets.}
+
+\label{tab:headdims}
+\begin{center}
+\small\setlength{\tabcolsep}{5pt}
+\begin{tabular}{@{}lrrrrrrr@{}}
+\toprule
+Policy & Input $D$ & Target $D_g$ & Trunk $d$ & Layers & Heads & FFN & Readouts \\
+\midrule
+\modelname{} (Wan) & 3072 & 3072 & 1536 & 2 & 24 & 6144 & 2 \\
+\modelname{} (Ovis-U1) & 1536 & 1536 & 768 & 2 & 12 & 3072 & 1 \\
+\modelname{} (FLUX.2) & 3072 & 3072 & 1536 & 2 & 24 & 6144 & 1 \\
+\modelname{} (Qwen3.5-2B) & 2048 & 2048 & 1024 & 2 & 16 & 4096 & 1 \\
+\modelname{} (DINOv2-B) & 768 & 768 & 384 & 2 & 6 & 1536 & 1 \\
+\modelname{} (DINOv2-L) & 1024 & 1024 & 512 & 2 & 8 & 2048 & 1 \\
+\bottomrule
+\end{tabular}
+\end{center}
+\vspace{-2mm}
+\end{table}

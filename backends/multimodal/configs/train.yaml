@@ -1,0 +1,89 @@
+# @package _global_
+
+defaults:
+  - _self_
+  - data: null
+  - model: null
+  - task: null
+
+
+output_dir: ./runs/train/${now:%Y-%m-%d}_${now:%H-%M-%S}
+
+# dataloading
+batch_size: 2
+num_workers: 4
+prefetch_factor: null      # null -> PyTorch default (2). Lower (e.g. 1) reduces worker queue memory.
+persistent_workers: false  # true keeps workers alive across epochs (skips re-fork)
+dataloader_multiprocessing_context: null # null preserves the existing platform default
+dataloader_non_blocking: false # true overlaps pinned-memory H2D with fetching the next batch
+
+# scheduler
+lr_scheduler_type: "cosine"
+learning_rate: 1.0e-4
+optimizer_foreach: null
+optimizer_fused: null   # null/false preserves the existing AdamW path; true uses PyTorch fused CUDA AdamW.
+optimizer_max_group_numel: null
+train_foresight_projector_only: false # opt-in warm start: freeze the policy and train only the registered foresight projector
+train_action_expert_only: false # opt-in post-foresight calibration: freeze visual/projector and train only action expert + proprio
+warmup_steps: null          # null keeps legacy 5% warmup; set 0 for no warmup.
+lr_scheduler_total_steps: null # optional benchmark override; null follows max_steps/epochs
+lr_scheduler_hold_after_end: false # opt-in continuation: keep endpoint LR after scheduler_total_steps
+resume_learning_rate: null # opt-in full-state continuation override applied after optimizer restore
+num_epochs: 1
+max_steps: null
+log_every: 10
+gather_metrics_every_step: true # false gathers train metrics only on log/timer steps; optimizer math is unchanged.
+save_every: 100
+keep_latest_state_only: false  # true keeps all weight checkpoints but only the latest resumable training state.
+save_full_state: true          # false saves weights only (Qwen production default)
+save_final_checkpoint: true    # false is intended only for disposable memory/throughput smoke runs.
+eval_every: 50
+eval_num_inference_steps: 10
+eval_num_samples: 1
+rank_timer_every: 10
+rank_timer_sync_cuda: true
+log_cuda_memory: false       # opt-in endpoint peak allocation/reservation across ranks
+
+# qwen text embedding pre-cache
+qwen_cache_batch_size: 32
+qwen_cache_overwrite: false
+qwen_cache_save_workers: 8
+flux2_qwen3_model_spec: null
+
+# InternData-A1 preprocessing/cache controls
+precache_arrow: true
+precache_num_workers: 4
+build_lerobot_meta_cache: true
+build_norm_stats: true
+precache_fuse_norm_stats: true
+force_rebuild_norm_stats: false
+norm_stats_use_arrow_cache: true
+norm_stats_bulk_read_arrow: true
+norm_stats_cache_enabled: true
+norm_stats_cache_dir: null
+precache_profile: false
+precache_profile_min_sec: 0.0
+
+# training
+gradient_accumulation_steps: 1
+mixed_precision: "bf16" # one of: [no, fp16, bf16]
+seed: 42
+max_grad_norm: 1.0
+weight_decay: 0.0
+resume: null
+
+# wandb
+wandb:
+  enabled: false
+  workspace: null
+  project: jam_multimodal
+  name: train
+  group: null
+  mode: online
+
+hydra:
+  job:
+    chdir: false
+  run:
+    dir: .
+  output_subdir: null

@@ -1,0 +1,73 @@
+# VideoMAE-B visual policy with frozen FLUX.2 Qwen3-4B language and strict
+# future-endpoint supervision.
+#
+# Student: trainable single-frame VideoMAE-B on current t. Its tubelet-2 stem
+# is folded into one Conv2d, exactly matching the minimal duplicated [t,t].
+# Action: 12-layer ActionDiTVideoMAE12 initialized one-to-one from VideoMAE.
+# Teacher: frozen copy of the same folded pretrained VideoMAE-B on only t+16.
+# No Ovis condition encoder, Yak/FLUX video transformer, VAE, or video loss.
+_target_: jam_multimodal.runtime.create_jam_ovis_u1
+ovis_u1_model_path: ???
+load_condition_encoder: false
+proprio_dim: null
+mot_checkpoint_mixed_attn: false
+mot_gqa_implementation: repeat
+mot_force_flash_attention: false
+action_dit_pretrained_path: null
+
+# Temporary construction shape; native_videomae12_mot replaces it before
+# training. The final action expert never loads Yak action weights.
+action_dit_config:
+  action_dim: ${data.train.processor.action_output_dim}
+  residual_dim: 1536
+  num_heads: 12
+  num_layers_double: 6
+  num_layers_single: 12
+  mlp_ratio: 4.0
+  qkv_bias: true
+  max_action_horizon: 64
+  use_gradient_checkpointing: false
+
+video_scheduler:
+  train_shift: 5.0
+  infer_shift: 5.0
+  num_train_timesteps: 1000
+action_scheduler:
+  train_shift: 5.0
+  infer_shift: 5.0
+  num_train_timesteps: 1000
+
+loss:
+  lambda_video: 0.0
+  lambda_action: 1.0
+
+ssl_vision:
+  enabled: true
+  backend: videomae_huggingface
+  model_id: ${oc.env:IMAGEWAM_VIDEOMAE_MODEL_PATH,checkpoints/videomae-base}
+  local_files_only: true
+  image_size: 224
+  num_views: 2
+  attn_implementation: ${oc.env:IMAGEWAM_SSL_ATTN_IMPLEMENTATION,sdpa}
+  gradient_checkpointing: false
+  action_fusion_type: native_videomae12_mot
+  text_condition_source: qwen3_4b_flux2_cached
+  qwen_text_cache_dir: ${oc.env:QWEN_CACHE_DIR,./data/libero_mujoco3.3.2/flux2_qwen3_cache_4b}
+  qwen_context_len: 512
+  qwen_hidden_dim: 7680
+  native_action:
+    text_dim: 7680
+    max_action_horizon: 64
+    initialize_from_backbone: true
+
+foresight:
+  enabled: true
+  load_teacher: true
+  teacher_type: external_ssl
+  teacher_input: future_endpoint_t16_folded_tubelet2
+  offsets: [1]
+  lambda_foresight: 0.3
+  projector_hidden_dim: 384
+  projector_ffn_dim: 1536
+  projector_num_layers: 2
+  projector_num_heads: 6

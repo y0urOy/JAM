@@ -1,0 +1,44 @@
+# @package _global_
+
+# Paired with the official FLUX.2 Klein 4B LIBERO baseline. Dataset, batch,
+# optimizer and epoch schedule are unchanged; only the model objective differs.
+defaults:
+  - override /data: libero_omnigen2_pair
+  - override /model: jam_flux2_klein_4b_base_foresight
+  - _self_
+
+data:
+  train:
+    require_text_cache: false
+    qwen_text_cache_dir: ???
+    qwen_context_len: 512
+    qwen_text_cache_format: qwen3_flux2
+
+batch_size: 10
+num_workers: 24
+prefetch_factor: 2
+persistent_workers: true
+
+learning_rate: 1e-4
+num_epochs: 10
+max_steps: null
+log_every: 10
+save_every: 0
+save_full_state: false
+eval_every: 0
+eval_num_samples: 8
+keep_latest_state_only: true
+
+gradient_accumulation_steps: 1
+weight_decay: 1.0e-2
+mixed_precision: "bf16"
+resume: null
+
+model:
+  proprio_dim: ${data.train.processor.proprio_output_dim}
+  qwen_context_len: 512
+
+wandb:
+  enabled: false
+  project: jam_multimodal
+  name: libero_flux2_klein_4b_base_jam_foresight

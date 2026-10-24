@@ -1,0 +1,30 @@
+{
+  "released_weights": {
+    "repository": "https://huggingface.co/y0urOy/JAM",
+    "manifest": "reproduction/libero_checkpoints.json",
+    "policies": [
+      "JAM (Wan), LIBERO",
+      "JAM (Ovis-U1), LIBERO",
+      "JAM (Qwen3.5-2B), LIBERO"
+    ],
+    "also_included": "action-expert initializations for the Wan and Ovis-U1 policies"
+  },
+  "not_released": [
+    "RoboTwin 2.0 policy weights and per-episode results",
+    "weights of the ablations, the action-only controls and the DINOv2 and FLUX.2 LIBERO policies",
+    "future-probe readout weights",
+    "training logs"
+  ],
+  "reference_values": "paper/tables/ reproduces the paper's tables; its values are reported results, not new measurements.",
+  "runnable_code_scope": [
+    "training",
+    "future target cache",
+    "LIBERO",
+    "LIBERO-Plus fixed 1506 tasks",
+    "RoboTwin simulator adapter",
+    "future probing",
+    "action attention",
+    "profiling",
+    "paired statistics"
+  ]
+}

@@ -1,0 +1,70 @@
+# @package _global_
+
+defaults:
+  - train
+  - override /task: libero_uncond_2cam224_1e-4
+  - _self_
+
+ckpt: null
+gpu_id: 0
+
+model:
+  load_text_encoder: true
+  skip_dit_load_from_pretrain: true
+  action_dit_pretrained_path: null
+
+EVALUATION:
+  task_suite_name: libero_spatial
+  task_id: 0
+  num_trials: 50
+  output_dir: ./evaluate_results/libero/${hydra:runtime.choices.task}/${now:%Y%m%d_%H%M%S}
+
+  # Runtime behavior
+  env_num: 1
+  # Keep MuJoCo/EGL outside the CUDA policy process on drivers where the two
+  # contexts otherwise trigger native read_pixels aborts. tools/evaluate_libero.py
+  # enables this; false retains the direct in-process path for diagnostics.
+  env_subprocess: false
+  # Foresight is a training-only auxiliary objective. Its frozen encoder and
+  # projector heads are not used by infer_action(), so skip constructing them
+  # during policy evaluation to reduce host/GPU memory substantially.
+  disable_foresight: true
+  # Memory-map the weights-only checkpoint during evaluation instead of
+  # materializing another full CPU copy before load_state_dict().
+  mmap_checkpoint: true
+  num_steps_wait: 30
+  replan_steps: 10
+  binarize_gripper: true
+  use_action_ensembler: false
+  visualize_future_video: false
+
+  # Action inference
+  action_horizon: null
+  num_inference_steps: ${eval_num_inference_steps}
+  sigma_shift: null
+  text_cfg_scale: 1.0
+  negative_prompt: ""
+  rand_device: cpu
+  tiled: false
+
+  # Optional external inputs
+  dataset_stats_path: null
+  device: cuda
+
+MULTIRUN:
+  create_only: false
+  task_file: null
+  task_suite_names:
+    - libero_10
+    - libero_goal
+    - libero_spatial
+    - libero_object
+  num_gpus: 8
+  max_tasks_per_gpu: 2
+
+hydra:
+  job:
+    chdir: false
+  run:
+    dir: .
+  output_subdir: null

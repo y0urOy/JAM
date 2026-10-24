@@ -1,0 +1,29 @@
+# @package _global_
+# Projector-size ablation: video stream only (NO action stream), no video co-training, EQUAL weights.
+defaults:
+  - override /data: libero_2cam
+  - override /model: jam_wan_foresight_bplus
+  - _self_
+
+batch_size: 16
+num_workers: 2
+
+model:
+  mot_checkpoint_mixed_attn: true
+  foresight:
+    action_layers: null
+    offset_weights: null
+    lambda_foresight: 0.5
+    projector_type: mlp
+    projector_mlp_hidden: 256
+
+lr_scheduler_type: "cosine"
+learning_rate: 1e-4
+num_epochs: 10
+max_steps: null
+log_every: 10
+save_every: 2000
+eval_every: 0
+gradient_accumulation_steps: 1
+weight_decay: 1e-2
+resume: null

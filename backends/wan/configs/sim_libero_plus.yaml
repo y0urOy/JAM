@@ -1,0 +1,50 @@
+# @package _global_
+
+defaults:
+  - sim_libero
+  - _self_
+
+EVALUATION:
+  num_trials: 1
+  output_dir: ./evaluate_results/libero_plus/${hydra:runtime.choices.task}/${now:%Y%m%d_%H%M%S}
+  task_file: null
+  canonical_result_names: true
+  disable_foresight: true
+  env_subprocess: true
+  # Result-preserving throughput options. The simulator observations/actions and
+  # all evaluation protocol settings remain unchanged.
+  save_rollout_video: false
+  show_progress: false
+  cache_text_context: true
+  mmap_checkpoint: true
+
+MULTIRUN:
+  task_suite_names:
+    - libero_10
+    - libero_goal
+    - libero_spatial
+    - libero_object
+  expected_suite_sizes:
+    libero_10: 2519
+    libero_goal: 2591
+    libero_spatial: 2402
+    libero_object: 2518
+  # ImageWAM paper protocol: 15% independently sampled from each suite.
+  task_sample_ratio: 0.15
+  task_sample_seed: 42
+  # Exact cross-repository task-ID parity with ImageWAM's public manager.
+  task_sample_strategy: jam_multimodal
+  chunk_size: 80
+  balance_chunks: true
+  # Treat chunk_size as an upper bound. Small smoke/resume runs shrink chunks
+  # so all available worker slots can participate.
+  target_chunks_per_slot: 2
+  duration_reference: null
+  skip_completed_tasks: true
+  num_gpus: 8
+  max_tasks_per_gpu: 2
+  suite_cost_weights:
+    libero_10: 1.75
+  category_cost_weights:
+    Sensor Noise: 2.0
+  difficulty_cost_step: 0.15

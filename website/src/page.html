@@ -1,0 +1,289 @@
+<a class="skip-link" href="#idea">Skip to the method</a>
+<header class="topbar">
+  <div class="wrap">
+    <a class="brand" href="#top" aria-label="JAM, Just Action Models, back to top"><i aria-hidden="true"></i><b>JAM</b><span>Just Action Models</span></a>
+    <div class="nav-box" id="nav-box">
+    <button class="nav-toggle" type="button" id="nav-toggle" aria-expanded="false" aria-controls="nav"><span id="nav-current">Contents</span><span class="nav-chevron" aria-hidden="true">⌄</span></button>
+    <button class="nav-arr l" type="button" id="nav-l" tabindex="-1" aria-hidden="true" hidden>‹</button>
+    <nav class="nav" id="nav" aria-label="Sections">
+      <a href="#idea"><b>01</b>Method</a>
+      <a href="#target"><b>02</b>Target</a>
+      <a href="#backbones"><b>03</b>Backbones</a>
+      <a href="#rollouts"><b>04</b>Rollouts</a>
+      <a href="#probe"><b>05</b>Probe</a>
+      <a href="#attention"><b>06</b>Attention</a>
+      <a href="#bench"><b>07</b>Results</a>
+      <a href="#compute"><b>08</b>Compute</a>
+      <a href="#ablations"><b>09</b>Ablations</a>
+      <a href="#cite"><b>10</b>Cite</a>
+    </nav>
+    <button class="nav-arr r" type="button" id="nav-r" tabindex="-1" aria-hidden="true" hidden>›</button>
+    </div>
+  </div>
+  <div class="progress" aria-hidden="true"><i id="progress"></i></div>
+</header>
+
+<main>
+  <section class="hero" id="top" aria-labelledby="hero-h">
+    <div class="hero-bg" aria-hidden="true"><div class="floor"></div><span class="kanji-wm" lang="ja">未来</span></div>
+    <div class="wrap hero-main">
+      <div class="hero-copy">
+        <p class="kicker"><span class="live" aria-hidden="true"></span>Vision-language-action or world-action?</p>
+        <h1 id="hero-h"><span class="l1 glitch" data-text="Just Action">Just Action</span> <span class="l2 glitch" data-text="Models">Models</span></h1>
+        <p class="lede">Learn from <span class="a">the future</span>. <b class="nw">Never generate it in training.</b><br>Predict <span class="t">only actions</span> at deployment.</p>
+        <div class="cta" role="group" aria-label="Code, model and paper">
+          <button class="btn res-btn" type="button" data-res="code" data-soon="Code: coming soon"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><rect x="2.5" y="6" width="19" height="12" rx="2.2"/><path class="k" d="M6.6 9.8h.01M10.2 9.8h.01M13.8 9.8h.01M17.4 9.8h.01M6.6 13h.01M10.2 13h.01M13.8 13h.01M17.4 13h.01"/><path d="M8.6 15.6h6.8"/></svg>Code</button>
+          <button class="btn res-btn" type="button" data-res="model" data-soon="Model weights: coming soon"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="10.6" r="7.2"/><path class="k" d="M9.4 9.2h.01M14.6 9.2h.01"/><path d="M9.2 12.2c1 1.7 4.6 1.7 5.6 0"/><path d="M3.4 15.8c1-1.5 2.9-1.6 3.9-.1l1.4 2.3M20.6 15.8c-1-1.5-2.9-1.6-3.9-.1l-1.4 2.3"/></svg>Model</button>
+          <button class="btn res-btn" type="button" data-res="arxiv" data-soon="arXiv: coming soon"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M6.5 2.8h7.6l4.4 4.4v14H6.5z"/><path d="M14 2.8v4.5h4.5"/><path d="M9 11.6h6M9 14.8h6M9 18h3.8"/></svg>arXiv</button>
+        </div>
+        <p class="authors" id="authors"></p>
+      </div>
+      <figure class="film" id="film" aria-label="Trailer">
+        <div class="brackets" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
+        <div class="film-frame" id="film-frame">
+          %%TRAILER_POSTER_IMG%%
+          <div class="film-ph" id="film-ph" %%TRAILER_PH_HIDDEN%%><span class="ph-grid" aria-hidden="true"></span><span class="ph-t">JAM</span><span class="ph-s">Trailer</span></div>
+          <button class="btn primary film-play" type="button" id="film-play" aria-label="Play the trailer, %%TRAILER_LEN%%, silent" aria-haspopup="dialog" %%TRAILER_BTN_HIDDEN%%>▶ Play trailer</button>
+        </div>
+      </figure>
+    </div>
+    <div class="wrap readouts" id="readouts" aria-label="Headline results"></div>
+  </section>
+
+  <div class="wrap">
+    <!-- 01 IDEA -->
+    <section id="idea" class="module" aria-labelledby="idea-h">
+      <header class="mod-head">
+        <p class="mod-tag"><span class="id">01</span>Method</p>
+        <div class="mod-title"><h2 id="idea-h">VLA or WAM? <em>Three choices, unbundled.</em></h2><p class="mod-sub">A VLA ignores the recorded future, a WAM generates it, and JAM predicts its features.</p></div>
+        <div class="big" id="idea-big"></div>
+      </header>
+      <div class="hud mixer">
+        <div class="dials">
+          <div class="dial"><p class="ctl-label" id="dial-bb-l"><b>A</b>Backbone</p><div class="seg" id="dial-bb" role="group" aria-labelledby="dial-bb-l"></div></div>
+          <div class="dial"><p class="ctl-label" id="dial-obj-l"><b>B</b>Loss on the future</p><div class="seg" id="dial-obj" role="group" aria-labelledby="dial-obj-l"></div></div>
+          <div class="dial"><p class="ctl-label" id="dial-inf-l"><b>C</b>Inference path</p><div class="seg" id="dial-inf" role="group" aria-labelledby="dial-inf-l"></div></div>
+        </div>
+        <div class="mixer-body">
+          <div class="mix-fig">
+            <div class="fig-toolbar">
+              <div class="seg sm" id="mix-view" role="group" aria-label="Phase">
+                <button type="button" data-v="train" aria-pressed="true">Training</button>
+                <button type="button" data-v="deploy" aria-pressed="false">Deployment</button>
+              </div>
+            </div>
+            <div class="diagram-scroll" id="mix-scroll"><svg id="mix-svg" viewBox="0 0 1000 432" role="img" aria-label="Policy architecture for the selected backbone, loss on the future and inference path"></svg></div>
+          </div>
+          <aside class="recipe" aria-live="polite">
+            <div class="recipe-top"><span class="tag" id="rc-tag"></span><span class="rc-model" id="rc-model"></span></div>
+            <h3 id="rc-name"></h3>
+            <p class="rc-desc" id="rc-desc"></p>
+            <dl class="rc-io"><div><dt>Objective</dt><dd id="rc-obj"></dd></div><div><dt>During training</dt><dd id="rc-train"></dd></div><div><dt>At deployment</dt><dd id="rc-dep"></dd></div></dl>
+          </aside>
+        </div>
+        <div class="mix-loss" id="mix-loss">
+          <div><p class="ctl-label">Foresight loss</p><p class="eq" id="mix-eq"></p></div>
+          <dl class="ml-keys" id="mix-loss-keys"></dl>
+        </div>
+      </div>
+    </section>
+
+    <!-- 02 TARGET -->
+    <section id="target" class="module" aria-labelledby="target-h">
+      <header class="mod-head">
+        <p class="mod-tag"><span class="id">02</span>Target</p>
+        <div class="mod-title"><h2 id="target-h">The best target <em class="a">lies ahead.</em></h2><p class="mod-sub">Future-only offsets beat the current only.</p></div>
+      </header>
+      <div class="hud target">
+        <div class="tg-controls">
+          <div><p class="ctl-label" id="tg-rec-l"><b>A</b>Architecture</p><div class="seg" id="tg-rec" role="group" aria-labelledby="tg-rec-l"></div></div>
+          <div><p class="ctl-label" id="tg-k-l"><b>B</b>Readout offsets</p><div class="seg" id="tg-k" role="group" aria-labelledby="tg-k-l"></div></div>
+          <div><p class="ctl-label" id="tg-anchor-l"><b>C</b>Future anchor</p><div class="seg" id="tg-anchor" role="group" aria-labelledby="tg-anchor-l"></div></div>
+        </div>
+        <div class="tg-fig" id="tg-fig"><svg id="tg-svg" viewBox="0 0 1000 214" role="img" aria-label="Recorded future positions used as targets for the selected readout offsets"></svg></div>
+        <div class="tg-out">
+          <div><dl class="tg-big" id="tg-big"></dl></div>
+          <div class="strip"><p class="chart-title">Every evaluated target</p><div class="sx" id="tg-strip-box"><svg id="tg-strip" viewBox="0 0 640 132" role="img" aria-label="LIBERO-Plus success of each evaluated target against the action-only and generation baselines"></svg></div></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 03 BACKBONES -->
+    <section id="backbones" class="module" aria-labelledby="backbones-h">
+      <header class="mod-head">
+        <p class="mod-tag"><span class="id">03</span>Backbones</p>
+        <div class="mod-title"><h2 id="backbones-h">Generation helps. <em>Foresight helps more.</em></h2><p class="mod-sub">Six backbones, three families, three benchmarks: wherever generation is reported, foresight scores higher.</p></div>
+      </header>
+      <div class="hud boards">
+        <div class="robust-top">
+          <div class="seg sm" id="pb-tab" role="group" aria-label="Benchmark"></div>
+          <div class="legend" id="pb-legend"></div>
+        </div>
+        <div class="bd-scroll" id="pb-scroll"><svg id="pb-svg" viewBox="0 0 1000 420" role="img" aria-label="Success by loss on the future for each backbone"></svg></div>
+      </div>
+    </section>
+
+    <!-- 04 ROLLOUTS -->
+    <section id="rollouts" class="module" aria-labelledby="rollouts-h">
+      <header class="mod-head">
+        <p class="mod-tag"><span class="id">04</span>Rollouts</p>
+        <div class="mod-title"><h2 id="rollouts-h">One fails, <em>one finishes.</em></h2><p class="mod-sub">Six pairs play in sync from the same initial state: same backbone, different training.</p></div>
+      </header>
+      <div class="hud theater">
+        <div class="pairs" id="pairs" role="group" aria-label="Rollout pair"></div>
+        <p class="task-line" id="task-line"></p>
+        <div class="screens" id="screens">
+          <figure class="screen base">
+            <div class="vid-frame seam"><video id="v-base" muted playsinline preload="none" tabindex="-1"></video><span class="clock" id="clk-base">0:00.0</span></div>
+            <figcaption class="screen-lbl" id="lbl-base"></figcaption>
+            <div class="verdict fail" id="vd-base"><div class="ring"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></div><span></span></div>
+          </figure>
+          <figure class="screen ours">
+            <div class="vid-frame seam"><video id="v-ours" muted playsinline preload="none" tabindex="-1"></video><span class="clock" id="clk-ours">0:00.0</span></div>
+            <figcaption class="screen-lbl" id="lbl-ours"></figcaption>
+            <div class="verdict ok" id="vd-ours"><div class="ring"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg></div><span></span></div>
+          </figure>
+        </div>
+        <div class="vctl">
+          <button class="icon-btn" type="button" id="th-play" aria-label="Play both rollouts"></button>
+          <button class="icon-btn" type="button" id="th-restart" aria-label="Restart both rollouts"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 2.5a5.5 5.5 0 1 1-5.2 3.7l1.4.5A4 4 0 1 0 8 4v2L4.8 3.2 8 .5z"/></svg></button>
+          <input type="range" id="th-scrub" min="0" max="1000" value="0" step="1" aria-label="Scrub both rollouts">
+          <span class="vtime" id="th-time">0:00.0</span>
+          <div class="seg sm speed" id="th-speed" role="group" aria-label="Playback speed"></div>
+        </div>
+        <p class="sr-only" id="th-live" aria-live="polite"></p>
+      </div>
+    </section>
+
+    <!-- 05 PROBE -->
+    <section id="probe" class="module" aria-labelledby="probe-h">
+      <header class="mod-head">
+        <p class="mod-tag"><span class="id">05</span>Probe</p>
+        <div class="mod-title"><h2 id="probe-h">Current features <em class="a">hint at what comes next.</em></h2><p class="mod-sub">Probes reconstruct the frame 16 steps ahead; with future targets, JAM (Ovis-U1) edges out ImageWAM.</p></div>
+        <div class="big" id="probe-big"></div>
+      </header>
+      <div class="hud vid">
+        <div class="vid-col">
+          <div class="vid-frame" style="aspect-ratio: %%PROBE_AR%%"><video id="probe-v" muted playsinline loop preload="none" tabindex="-1" data-poster="%%PROBE_POSTER%%"></video></div>
+          <div class="vctl">
+            <button class="icon-btn" type="button" id="probe-play" aria-label="Play the probe video"></button>
+            <input type="range" id="probe-scrub" min="0" max="1000" value="0" step="1" aria-label="Scrub the probe video">
+            <span class="vtime" id="probe-time">0:00.0</span>
+            <button class="icon-btn expand-video" type="button" data-expand="probe-v" aria-label="Expand the probe video" title="Expand video"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M1 6V1h5v2H3v3zm9-5h5v5h-2V3h-3zm5 9v5h-5v-2h3v-3zM6 15H1v-5h2v3h3z"/></svg></button>
+          </div>
+          <p class="media-status" id="probe-status" role="status" hidden></p>
+        </div>
+        <details class="how"><summary>How to read</summary><div id="probe-how"></div></details>
+      </div>
+    </section>
+
+    <!-- 06 ATTENTION -->
+    <section id="attention" class="module" aria-labelledby="attention-h">
+      <header class="mod-head">
+        <p class="mod-tag"><span class="id">06</span>Attention</p>
+        <div class="mod-title"><h2 id="attention-h">JAM attends more <em>to the second mug.</em></h2><p class="mod-sub">Paper example on Ovis-U1: the instruction names two mugs, and ImageWAM concentrates on the held one.</p></div>
+      </header>
+      <div class="hud vid">
+        <div class="vid-col">
+          <div class="vid-frame" style="aspect-ratio: %%ATT_AR%%"><video id="att-v" muted playsinline loop preload="none" tabindex="-1" data-poster="%%ATT_POSTER%%"></video></div>
+          <div class="vctl">
+            <button class="icon-btn" type="button" id="att-play" aria-label="Play the attention video"></button>
+            <div class="scrub-box"><input type="range" id="att-scrub" min="0" max="1000" value="0" step="1" aria-label="Scrub the attention video"></div>
+            <span class="vtime" id="att-time">0:00.0</span>
+            <button class="icon-btn expand-video" type="button" data-expand="att-v" aria-label="Expand the attention video" title="Expand video"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M1 6V1h5v2H3v3zm9-5h5v5h-2V3h-3zm5 9v5h-5v-2h3v-3zM6 15H1v-5h2v3h3z"/></svg></button>
+          </div>
+          <p class="media-status" id="att-status" role="status" hidden></p>
+        </div>
+        <details class="how"><summary>How to read</summary><div id="att-how"></div></details>
+      </div>
+    </section>
+
+    <!-- 07 BENCH -->
+    <section id="bench" class="module" aria-labelledby="bench-h">
+      <header class="mod-head">
+        <p class="mod-tag"><span class="id">07</span>Results</p>
+        <div class="mod-title"><h2 id="bench-h">Against VLAs <em>and WAMs.</em></h2><p class="mod-sub">JAM next to other policies on LIBERO-Plus, LIBERO and RoboTwin 2.0.</p></div>
+        <div class="big" id="bench-big"></div>
+      </header>
+      <div class="hud boards">
+        <div class="robust-top">
+          <div class="seg sm" id="bd-tab" role="group" aria-label="Benchmark"></div>
+          <div class="legend" id="bd-legend"></div>
+        </div>
+        <div class="bd-scroll" id="bd-scroll"><svg id="bd-svg" viewBox="0 0 1000 420" role="img" aria-label="Average success by method for the selected benchmark"></svg></div>
+        <details class="tv" id="bd-details"><summary>Full table</summary><div class="table-tools"><span>Scroll for all columns</span><button type="button" class="text-btn" data-csv="bd-table">Download CSV ↓</button></div><div class="tbl-scroll sticky1" id="bd-table" tabindex="0" role="region" aria-label="Full results table"></div><p class="tbl-cap" id="bd-cap"></p></details>
+      </div>
+    </section>
+
+    <!-- 08 COMPUTE -->
+    <section id="compute" class="module" aria-labelledby="compute-h">
+      <header class="mod-head">
+        <p class="mod-tag"><span class="id">08</span>Compute</p>
+        <div class="mod-title"><h2 id="compute-h">Nothing to generate, <em>less to compute.</em></h2><p class="mod-sub">Generation denoises future frames every update; cached foresight processes only the current frame.</p></div>
+        <div class="big" id="compute-big"></div>
+      </header>
+      <div class="hud compute">
+        <div class="cmp-ctl">
+          <div><p class="ctl-label" id="cmp-rec-l"><b>A</b>Architecture</p><div class="seg sm" id="cmp-rec" role="group" aria-labelledby="cmp-rec-l"></div></div>
+          <div><p class="ctl-label" id="cmp-mode-l"><b>B</b>Foresight targets</p><div class="seg sm" id="cmp-mode" role="group" aria-labelledby="cmp-mode-l"></div></div>
+        </div>
+        <div class="cmp-out">
+          <div class="chart">
+            <div class="legend" id="cmp-legend"></div>
+            <div class="cmp-scroll" id="cmp-box"><svg id="cmp-svg" viewBox="0 0 700 214" role="img" aria-label="Estimated training compute per sample per update, by component"></svg></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 09 ABLATIONS -->
+    <section id="ablations" class="module" aria-labelledby="ablations-h">
+      <header class="mod-head">
+        <p class="mod-tag"><span class="id">09</span>Ablations</p>
+        <div class="mod-title"><h2 id="ablations-h">Start from a pretrained backbone, <em>keep the target frozen.</em></h2><p class="mod-sub">A randomly initialized target still works, and robustness gains span six of seven perturbation types.</p></div>
+      </header>
+      <div class="abl" id="abl"></div>
+      <article class="hud card robust robust-card" aria-labelledby="robust-h">
+        <div class="rcard-head">
+          <div><h3 id="robust-h">Stronger when <em>the world shifts</em></h3><p class="take">Each dot: a LIBERO-Plus task only one policy solved.</p></div>
+          <div class="big" id="robust-big"></div>
+        </div>
+        <div class="robust-top">
+          <div class="seg sm" id="rb-pair" role="group" aria-label="Policy pair"></div>
+          <div class="legend" id="rb-legend" hidden></div>
+        </div>
+        <div class="rb-scroll" id="rb-scroll"><svg id="rb-svg" viewBox="0 0 1000 420" role="img" aria-label="Tasks solved by only one policy, per perturbation category"></svg></div>
+        <dl class="stats" id="rb-stats"></dl>
+        <details class="tv"><summary>By category</summary><div class="table-tools"><span>Scroll for all columns</span><button type="button" class="text-btn" data-csv="rb-table">Download CSV ↓</button></div><div class="tbl-scroll sticky1" id="rb-table" tabindex="0" role="region" aria-label="Success by category table"></div><p class="tbl-cap" id="rb-cap"></p></details>
+      </article>
+    </section>
+
+    <!-- 10 CITE -->
+    <section id="cite" class="module" aria-labelledby="cite-h">
+      <header class="mod-head">
+        <p class="mod-tag"><span class="id">10</span>Cite</p>
+        <div class="mod-title"><h2 id="cite-h">Cite <em>Just Action Models.</em></h2></div>
+      </header>
+      <div class="hud cite">
+        <button class="btn" type="button" id="copy-bib">Copy</button>
+        <pre id="bib" tabindex="0" aria-label="BibTeX entry"></pre>
+      </div>
+      <footer class="foot" id="foot"></footer>
+    </section>
+  </div>
+</main>
+<dialog class="cinema" id="cinema" aria-label="%%TRAILER_CAPTION%%">
+  <button class="btn cinema-x" type="button" id="cinema-close" aria-label="Close the trailer"><span aria-hidden="true">✕</span> Close</button>
+  <div class="cinema-box">
+    <div class="cinema-frame" id="cinema-frame">
+      <video id="trailer" playsinline muted preload="none" tabindex="-1" %%TRAILER_POSTER_ATTR%%></video>
+      <p class="cinema-load" id="cinema-load" role="status" hidden></p>
+      <button class="btn cinema-retry" id="cinema-retry" type="button" hidden>Retry video</button>
+    </div>
+  </div>
+</dialog>
+<dialog class="media-viewer" id="media-viewer" aria-labelledby="viewer-title">
+  <div class="viewer-header"><p id="viewer-title"></p><button class="btn" type="button" id="viewer-close" aria-label="Close expanded video">✕ Close</button></div>
+  <div class="viewer-content" id="viewer-content"></div>
+</dialog>
+<div class="tip" id="tip" role="tooltip"></div>

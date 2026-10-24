@@ -1,0 +1,46 @@
+# @package _global_
+
+# Ovis-ImageWAM + frozen VideoMAE future-clip teacher.
+# The policy sees t; the teacher sees every real frame t+1...t+16.
+defaults:
+  - override /data: libero_omnigen2_pair
+  - override /model: jam_ovis_u1_videomae_teacher_foresight
+  - _self_
+
+data:
+  train:
+    # A real VideoMAE clip requires all 17 RGB observations.  The policy still
+    # consumes only t; build_inputs_ovis_u1 routes frames 1:17 only to teacher.
+    endpoint_frames_only: false
+    processor:
+      image_obs_steps: 17
+    qwen_text_cache_dir: null
+    require_text_cache: false
+
+batch_size: 16
+# Full clips are substantially heavier to decode than two endpoints.  These
+# settings change throughput only, not the model/loss semantics.
+num_workers: 8
+prefetch_factor: 2
+persistent_workers: false
+learning_rate: 1.0e-4
+num_epochs: 10
+max_steps: null
+log_every: 10
+save_every: 0
+save_full_state: false
+eval_every: 0
+eval_num_samples: 8
+keep_latest_state_only: true
+gradient_accumulation_steps: 1
+weight_decay: 1.0e-2
+mixed_precision: "bf16"
+resume: null
+
+model:
+  proprio_dim: ${data.train.processor.proprio_output_dim}
+
+wandb:
+  enabled: false
+  project: jam_multimodal
+  name: libero_ovis_u1_videomae_teacher_foresight

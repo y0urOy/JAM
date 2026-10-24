@@ -1,0 +1,7 @@
+defaults:
+  - libero_omnigen2_pair
+  - _self_
+
+train:
+  qwen_text_cache_dir: null
+  require_text_cache: false

@@ -1,0 +1,77 @@
+_target_: jam_multimodal.runtime.create_jam_qwen35
+
+# Qwen3.5 uses an isolated Transformers-5 environment. These paths can be
+# overridden without editing the config on another installation.
+model_id: ${oc.env:IMAGEWAM_QWEN35_MODEL_PATH,checkpoints/Qwen3.5-2B-Base}
+teacher_model_id: ${oc.env:IMAGEWAM_QWEN35_TEACHER_PATH,${model.model_id}}
+load_text_encoder: false
+proprio_dim: ${data.train.processor.proprio_output_dim}
+
+image_size: 224
+num_views: 2
+context_dim: 4096
+# Use the same transformer projector as the Ovis recipe and scale its
+# width with the backbone: hidden=D/2, FFN=4*hidden, head_dim=64, two layers.
+# Qwen has D=2048, so the proportional projector is 1024/4096/2/16 (29.39M).
+predictor_type: imagewam_transformer
+predictor_hidden_dim: 1024
+predictor_ffn_dim: 4096
+predictor_num_layers: 2
+predictor_num_heads: 16
+# Peak memory stays below 30 GiB per GPU without activation checkpointing at
+# the reference batch size, so keep saved activations and avoid recompute.
+use_gradient_checkpointing: false
+qwen_attn_implementation: sdpa
+# Exact execution-only acceleration for fixed-size image batches (bitwise
+# equal outputs; see scripts/test_qwen35_equal_grid_vision_attention.py).
+batch_equal_grid_vision_attention: true
+# Keep the reusable model default off. The RoboTwin task opts in; smaller
+# LIBERO runs should not pay the recomputation overhead.
+vision_gradient_checkpointing: false
+vision_gradient_checkpointing_blocks: null
+
+# Qwen decoder depth is 24, so use a 24-layer ActionDiT and fuse the paired
+# Qwen visual/action K/V with one causal mixed-attention softmax per layer.
+action_fusion_type: layerwise_mot
+
+action_dit_pretrained_path: ${oc.env:IMAGEWAM_QWEN35_ACTION_CKPT,checkpoints/ActionDiT_linear_interp_Wan22_alphascale_1024hdim.pt}
+action_dit_pretrained_layer_mapping: uniform
+skip_dit_load_from_pretrain: false
+action_dit_config:
+  action_dim: ${data.train.processor.action_output_dim}
+  hidden_dim: 1024
+  ffn_dim: 4096
+  num_heads: 24
+  attn_head_dim: 128
+  num_layers: 24
+  text_dim: 4096
+  freq_dim: 256
+  eps: 1.0e-06
+  use_gradient_checkpointing: false
+
+action_scheduler:
+  train_shift: 5.0
+  infer_shift: 5.0
+  num_train_timesteps: 1000
+
+loss:
+  lambda_action: 1.0
+  # Match the future-only Ovis recipe.
+  lambda_foresight: 0.3
+
+foresight:
+  enabled: true
+  load_teacher: true
+  # Teacher-source ablations are opt-in. The default teacher is a frozen copy
+  # of the pretrained Qwen3.5-2B-Base.
+  teacher_mode: frozen_pretrained
+  teacher_random_seed: 42
+  teacher_early_exit: true
+  # One-based Qwen decoder layer; the student still executes all 24 layers for
+  # action context while the frozen teacher stops exactly after layer 13.
+  layer: 13
+  # Grid index 4 is raw robot timestep t+16 (frames are sampled every 4
+  # steps). The production task emits the 5-frame grid [0..4]. Do not include
+  # index 0: the current frame is causal context, not an alignment target.
+  frame_offsets: [4]
+  offset_weights: null

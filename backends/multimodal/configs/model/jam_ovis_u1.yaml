@@ -1,0 +1,34 @@
+_target_: jam_multimodal.runtime.create_jam_ovis_u1
+
+ovis_u1_model_path: ???
+load_condition_encoder: true
+proprio_dim: null
+mot_checkpoint_mixed_attn: true
+mot_gqa_implementation: repeat
+mot_force_flash_attention: false
+action_dit_pretrained_path: null
+
+action_dit_config:
+  action_dim: ${data.train.processor.action_output_dim}
+  residual_dim: 1536
+  num_heads: 12
+  num_layers_double: 6
+  num_layers_single: 12
+  mlp_ratio: 4.0
+  qkv_bias: true
+  max_action_horizon: 64
+  use_gradient_checkpointing: ${model.mot_checkpoint_mixed_attn}
+
+video_scheduler:
+  train_shift: 5.0
+  infer_shift: 5.0
+  num_train_timesteps: 1000
+
+action_scheduler:
+  train_shift: 5.0
+  infer_shift: 5.0
+  num_train_timesteps: 1000
+
+loss:
+  lambda_video: 0.5
+  lambda_action: 1.0

@@ -1,0 +1,74 @@
+# @package _global_
+
+defaults:
+  - train
+  - override /task: robotwin_uncond_3cam_384_1e-4
+  - _self_
+
+ckpt: null
+gpu_id: 0
+
+model:
+  load_text_encoder: true
+  skip_dit_load_from_pretrain: true
+  action_dit_pretrained_path: null
+
+EVALUATION:
+  robotwin_root: third_party/RoboTwin
+  policy_name: jam_policy
+  task_name: null
+  task_config: demo_randomized
+  instruction_type: unseen
+  eval_num_episodes: 100
+  output_dir: ./evaluate_results/robotwin/${hydra:runtime.choices.task}/${now:%Y%m%d_%H%M%S}
+
+  # Unified launcher writes directly to --output; legacy backend layout stays available.
+  exact_output_dir: false
+
+  # Action inference
+  action_horizon: null
+  replan_steps: 24
+  num_inference_steps: ${eval_num_inference_steps}
+  sigma_shift: null
+  text_cfg_scale: 1.0
+  negative_prompt: ""
+  rand_device: cpu
+  tiled: false
+  timing_enabled: false
+  skip_get_obs_within_replan: true
+  # Metric-only evaluation: videos are diagnostic artifacts and do not enter
+  # policy inputs or success computation.  Disable 10,000 per-episode ffmpeg
+  # encoders by default; an explicit override can restore paper-style videos.
+  eval_video_log: false
+  # Cache each instruction's exact encoded text context across replans.
+  cache_text_context: true
+  # Keep the original 512-token attention shape by default.  Trimming masked
+  # padding is mathematically equivalent but changes BF16 kernel reduction
+  # order (real-checkpoint max action delta 0.015625), so it is opt-in only.
+  trim_text_context_padding: false
+  text_context_cache_max_entries: 128
+  # Optional fast, strictly paired ablation protocol.  Null preserves the
+  # official online expert seed filter used for paper reproduction.
+  paired_manifest_path: null
+  robotwin_camera_layout: ${data.train.robotwin_camera_layout}
+  # The released RoboTwin checkpoint/evaluator keeps actions in the dataset's
+  # already transformed joint-action space.  Retain that behavior explicitly.
+  apply_action_transform_backward: false
+
+  # Runtime inputs
+  dataset_stats_path: null
+  device: cuda
+
+MULTIRUN:
+  enabled: false
+  num_gpus: 8
+  gpu_ids: null
+  max_tasks_per_gpu: 2
+  phases: [clean, random]  # use [random] to evaluate only demo_randomized
+
+hydra:
+  job:
+    chdir: false
+  run:
+    dir: .
+  output_subdir: null

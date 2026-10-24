@@ -1,0 +1,15 @@
+# @package _global_
+
+# The ImageWAM main-text RoboTwin protocol says that all compared policies are
+# trained for 30,000 optimizer steps.  This overlay keeps the complete official
+# Ovis RoboTwin task and the foresight objective unchanged, while
+# selecting that paper step budget explicitly.
+defaults:
+  - robotwin_ovis_u1_jam_foresight
+  - _self_
+
+max_steps: 30000
+
+wandb:
+  name: robotwin_ovis_u1_jam_foresight_paper30k
+

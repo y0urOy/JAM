@@ -1,0 +1,79 @@
+# @package _global_
+
+# RoboTwin Ovis-U1 policy with the LIBERO Ovis foresight
+# objective.  Dataset, optimizer, resolution, action horizon, and the public
+# repository's per-rank batch/epoch settings stay aligned with the official
+# robotwin_ovis_u1_jam task.  Only the auxiliary visual objective changes:
+# generation loss is disabled and the student predicts the frozen Yak
+# layer-11 representation of the real t+16 endpoint.
+defaults:
+  - override /data: robotwin_omnigen2
+  - override /model: jam_ovis_u1_foresight
+  - _self_
+
+data:
+  train:
+    qwen_text_cache_dir: null
+    require_text_cache: false
+  val:
+    qwen_text_cache_dir: null
+    require_text_cache: false
+    # The public robotwin_omnigen2 config leaves this null, which makes the
+    # validation dataset fail construction.  Training and validation must use
+    # the same official RoboTwin statistics.
+    pretrained_norm_stats: ${data.train.pretrained_norm_stats}
+
+# Official public Ovis RoboTwin data/optimization settings.
+batch_size: 4
+num_workers: 8
+prefetch_factor: 2
+persistent_workers: true
+dataloader_multiprocessing_context: spawn
+
+lr_scheduler_type: "cosine"
+learning_rate: 1e-4
+warmup_steps: null
+num_epochs: 5
+max_steps: null
+log_every: 10
+gather_metrics_every_step: false
+# Checkpoint storage cadence; the public ImageWAM task uses 2,500.  This does not
+# change any optimizer update or the final 30,000-step checkpoint.
+save_every: 5000
+save_full_state: true
+keep_latest_state_only: true
+
+# The built-in evaluation reconstructs video.  It is not meaningful when the
+# foresight recipe deliberately sets lambda_video=0.  RoboTwin policy
+# evaluation is run separately from saved action-policy weights.
+eval_every: 0
+
+gradient_accumulation_steps: 1
+mixed_precision: "bf16"
+max_grad_norm: 1.0
+weight_decay: 1e-2
+resume: null
+
+model:
+  proprio_dim: 14
+  loss:
+    lambda_video: 0.0
+    lambda_action: 1.0
+  foresight:
+    enabled: true
+    teacher_mode: frozen_pretrained
+    drop_target_tokens: true
+    layer: 11
+    encoder_layer: 11
+    teacher_early_exit: true
+    offsets: [1]
+    lambda_foresight: 0.3
+    projector_hidden_dim: 768
+    projector_ffn_dim: 3072
+    projector_num_layers: 2
+    projector_num_heads: 12
+
+wandb:
+  enabled: false
+  project: jam_multimodal
+  name: robotwin_ovis_u1_jam_foresight

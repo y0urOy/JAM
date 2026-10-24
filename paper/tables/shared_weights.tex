@@ -1,0 +1,20 @@
+\begin{table}[htbp]
+\vspace{-2mm}
+\caption{Separate action expert versus shared backbone weights for Qwen3.5 on LIBERO-Plus. Success rates are in percent; AVG is task-weighted and Params counts deployed parameters.}
+\vspace{2mm}
+\label{tab:sharedweights}
+\centering
+\small
+\setlength{\tabcolsep}{2.5pt}
+\begin{tabular*}{\textwidth}{@{\extracolsep{\fill}}l l c ccccccc c@{}}
+\toprule
+Policy & Actions & Params & Camera & Robot & Language & Light & Background & Noise & Layout & AVG \\
+\midrule
+\modelname{} (Qwen3.5-2B) & Expert & 3.60B & \textbf{80.8} & 61.4 & 71.7 & \textbf{93.8} & \textbf{81.7} & 94.2 & \textbf{84.5} & \textbf{81.14} \\
+\midrule
+\modelname{} (Qwen3.5-2B) & Shared & 2.22B & 80.4 & 64.0 & 68.9 & 92.5 & 76.9 & \textbf{96.1} & 78.2 & 79.61 \\
+\modelname{} (Qwen3.5-4B) & Shared & 4.55B & 80.4 & \textbf{67.5} & \textbf{74.6} & 91.9 & 76.3 & 95.3 & 77.7 & 80.68 \\
+\bottomrule
+\end{tabular*}
+\vspace{-2mm}
+\end{table}

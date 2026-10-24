@@ -1,0 +1,90 @@
+{
+  "note": "Public model and dataset download references. Trained JAM weights are on Hugging Face (y0urOy/JAM) and are not downloaded by this tool. Each asset retains its upstream terms.",
+  "assets": {
+    "wan": {
+      "repo_id": "Wan-AI/Wan2.2-TI2V-5B",
+      "revision": "921dbaf3f1674a56f47e83fb80a34bac8a8f203e",
+      "directory": "Wan-AI/Wan2.2-TI2V-5B",
+      "allow_patterns": [
+        "*.safetensors",
+        "*.pth",
+        "*.json"
+      ],
+      "pin_evidence": "Recorded local model download revision"
+    },
+    "wan-tokenizer": {
+      "repo_id": "Wan-AI/Wan2.1-T2V-1.3B",
+      "revision": "37ec512624d61f7aa208f7ea8140a131f93afc9a",
+      "directory": "Wan-AI/Wan2.1-T2V-1.3B",
+      "allow_patterns": [
+        "google/umt5-xxl/*"
+      ],
+      "pin_evidence": "Recorded local model download revision"
+    },
+    "qwen-2b": {
+      "repo_id": "Qwen/Qwen3.5-2B-Base",
+      "revision": "b1485b2fa6dfa1287294f269f5fb618e03d52d7c",
+      "directory": "Qwen3.5-2B-Base",
+      "pin_evidence": "Recorded local model download revision"
+    },
+    "dino-b": {
+      "repo_id": "facebook/dinov2-base",
+      "revision": "f9e44c814b77203eaa57a6bdbbd535f21ede1415",
+      "directory": "dinov2-base",
+      "pin_evidence": "Recorded local model download revision"
+    },
+    "dino-l": {
+      "repo_id": "facebook/dinov2-large",
+      "revision": "47b73eefe95e8d44ec3623f8890bd894b6ea2d6c",
+      "directory": "dinov2-large",
+      "pin_evidence": "Recorded local model download revision"
+    },
+    "flux": {
+      "repo_id": "black-forest-labs/FLUX.2-klein-base-4B",
+      "revision": "a3b4f4849157f664bdbc776fd7453c2783562f4d",
+      "directory": "flux2/FLUX.2-klein-base-4B",
+      "pin_evidence": "Recorded local model download revision"
+    },
+    "flux-ae": {
+      "repo_id": "black-forest-labs/FLUX.2-dev",
+      "revision": "26afe3a78bb242c0a8bb181dcc8937bb16e5c66c",
+      "directory": "flux2/FLUX.2-dev",
+      "allow_patterns": [
+        "ae.safetensors"
+      ],
+      "pin_evidence": "Recorded local model download revision"
+    },
+    "ovis": {
+      "repo_id": "AIDC-AI/Ovis-U1-3B",
+      "revision": "cbc005ddff7376a20bc98a89136d088e0f7e1623",
+      "directory": "Ovis-U1-3B",
+      "pin_evidence": "Upstream revision inspected at release preparation; original training revision not established from local metadata"
+    },
+    "qwen-4b": {
+      "repo_id": "Qwen/Qwen3.5-4B-Base",
+      "revision": "1001bb4d826a52d1f399e183466143f4da7b741b",
+      "directory": "Qwen3.5-4B-Base",
+      "pin_evidence": "Upstream revision inspected at release preparation; original training revision not established from local metadata"
+    },
+    "qwen3": {
+      "repo_id": "Qwen/Qwen3-4B",
+      "revision": "1cfa9a7208912126459214e8b04321603b3df60c",
+      "directory": "Qwen3-4B",
+      "pin_evidence": "Upstream revision inspected at release preparation; original training revision not established from local metadata"
+    },
+    "libero-data": {
+      "repo_id": "yuanty/LIBERO-fastwam",
+      "revision": "117413dc0ca99c7cd64036c4eaa4a316c537d692",
+      "repo_type": "dataset",
+      "directory": "libero_mujoco3.3.2",
+      "pin_evidence": "Local Hugging Face download metadata"
+    },
+    "robotwin-data": {
+      "repo_id": "yuanty/robotwin2.0-fastwam",
+      "revision": "aac262c35d02cc71b2f6ef670bd65fd9f2bb2547",
+      "repo_type": "dataset",
+      "directory": "robotwin2.0",
+      "pin_evidence": "Local Hugging Face download metadata"
+    }
+  }
+}

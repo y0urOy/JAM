@@ -1,0 +1,77 @@
+_target_: jam_wan.runtime.create_jam_wan
+model_id: Wan-AI/Wan2.2-TI2V-5B
+tokenizer_model_id: Wan-AI/Wan2.1-T2V-1.3B
+tokenizer_max_len: 128
+load_text_encoder: false
+proprio_dim: ${data.train.processor.proprio_output_dim}
+redirect_common_files: false
+mot_checkpoint_mixed_attn: true
+action_dit_pretrained_path: checkpoints/ActionDiT_linear_interp_Wan22_alphascale_1024hdim.pt
+skip_dit_load_from_pretrain: false
+
+video_dit_config:
+  has_image_input: false
+  patch_size: [1, 2, 2]
+  in_dim: 48
+  hidden_dim: 3072
+  ffn_dim: 14336
+  freq_dim: 256
+  text_dim: 4096
+  out_dim: 48
+  num_heads: 24
+  attn_head_dim: 128
+  num_layers: 30
+  eps: 1.0e-06
+  seperated_timestep: true
+  require_clip_embedding: false
+  require_vae_embedding: false
+  fuse_vae_embedding_in_latents: true
+  use_gradient_checkpointing: ${model.mot_checkpoint_mixed_attn}
+  video_attention_mask_mode: "first_frame_causal" # default
+  action_conditioned: false
+  action_dim: ${data.train.processor.action_output_dim}
+  action_group_causal_mask_mode: "group_diagonal"
+
+action_dit_config:
+  action_dim: ${data.train.processor.action_output_dim}
+  hidden_dim: 1024
+  ffn_dim: 4096
+  num_heads: 24
+  attn_head_dim: 128
+  num_layers: 30
+  text_dim: 4096
+  freq_dim: 256
+  eps: 1.0e-06
+  use_gradient_checkpointing: ${model.mot_checkpoint_mixed_attn}
+
+video_scheduler:
+  train_shift: 5.0
+  infer_shift: 5.0
+  num_train_timesteps: 1000
+
+action_scheduler:
+  train_shift: 5.0
+  infer_shift: 5.0
+  num_train_timesteps: 1000
+
+loss:
+  lambda_action: 1.0
+
+# Foresight-only (no video co-training). The video branch sees only the
+# clean first frame at t=0 during training, exactly matching the infer_action
+# deployment path; the generative video FM loss is dropped and replaced by the
+# foresight alignment loss.
+# A frozen pretrained copy of the video DiT encodes the clean GT clip at t=0;
+# the first-frame token hidden states at `layer` are pulled (cosine) toward the
+# encoder's hidden states fused over `offsets` latent frames. Training-only:
+# encoder and projector are discarded at inference.
+foresight:
+  enabled: true
+  video_cotrain: false
+  layers: [12, 14, 16, 18]      # middle-depth student layers
+  encoder_layers: [12, 14, 16, 18]
+  offsets: null      # latent-frame indices fused into the target; null = all (current + all futures in chunk)
+  lambda_foresight: 0.2
+  projector_num_layers: 3
+  projector_num_heads: 24
+  projector_ffn_dim: 12288

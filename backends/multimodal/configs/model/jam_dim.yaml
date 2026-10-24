@@ -1,0 +1,44 @@
+_target_: jam_multimodal.runtime.create_jam_dim
+
+dim_model_path: ???
+sana_config_path: /apdcephfs_nj7/share_305204761/alixzhang/DIM/models/sana1-5_config/1024ms/Sana_1600M_1024px_allqknorm_bf16_lr2e5_channel_cond.yaml
+qwen_path: Qwen/Qwen2.5-VL-3B-Instruct
+max_condition_length: 512
+with_latents_condition: true
+load_mllm: true
+qwen_attn_implementation: flash_attention_2
+proprio_dim: null
+pack_proprio_after_text: true
+mot_checkpoint_mixed_attn: true
+mot_gqa_implementation: repeat
+mot_force_flash_attention: false
+action_dit_pretrained_path: null
+
+action_dit_config:
+  action_dim: ${data.train.processor.action_output_dim}
+  residual_dim: 1536
+  # DIM/SANA geometry fields below are placeholders and are overridden from
+  # the loaded SANA video expert: attn_dim=2240, num_heads=70, num_layers=20.
+  attn_dim: 2240
+  num_heads: 70
+  num_layers: 20
+  context_dim: 2240
+  mlp_ratio: 2.5
+  qk_norm: true
+  frequency_embedding_size: 256
+  timestep_scale: 1.0
+  use_gradient_checkpointing: ${model.mot_checkpoint_mixed_attn}
+
+video_scheduler:
+  train_shift: 5.0
+  infer_shift: 5.0
+  num_train_timesteps: 1000
+
+action_scheduler:
+  train_shift: 5.0
+  infer_shift: 5.0
+  num_train_timesteps: 1000
+
+loss:
+  lambda_video: 0.5
+  lambda_action: 1.0

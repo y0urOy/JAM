@@ -1,0 +1,103 @@
+{
+  "rollouts": {
+    "moka": {
+      "base": {
+        "webm": 1236612,
+        "mp4": 1718739
+      },
+      "ours": {
+        "webm": 734282,
+        "mp4": 978100
+      }
+    },
+    "drawer": {
+      "base": {
+        "webm": 1284962,
+        "mp4": 1801111
+      },
+      "ours": {
+        "webm": 485939,
+        "mp4": 621006
+      }
+    },
+    "stove": {
+      "base": {
+        "webm": 1561999,
+        "mp4": 2138297
+      },
+      "ours": {
+        "webm": 790953,
+        "mp4": 1028651
+      }
+    },
+    "cabinet": {
+      "base": {
+        "webm": 722326,
+        "mp4": 1024615
+      },
+      "ours": {
+        "webm": 252854,
+        "mp4": 324233
+      }
+    },
+    "can": {
+      "base": {
+        "webm": 1789305,
+        "mp4": 4590277
+      },
+      "ours": {
+        "webm": 701553,
+        "mp4": 1632872
+      }
+    },
+    "blocks": {
+      "base": {
+        "webm": 562319,
+        "mp4": 1253506
+      },
+      "ours": {
+        "webm": 228485,
+        "mp4": 480168
+      }
+    }
+  },
+  "probe": {
+    "base": "assets/analysis/readout-wide-hud",
+    "poster": "assets/analysis/readout-wide-hud.jpg",
+    "w": 2214,
+    "h": 520,
+    "dur": 21.7,
+    "bytes": {
+      "webm": 3935096,
+      "mp4": 6766955
+    },
+    "hud": true,
+    "posterStep": 0,
+    "exampleStep": 384,
+    "fps": 20
+  },
+  "att": {
+    "base": "assets/analysis/attention-wide-hud",
+    "poster": "assets/analysis/attention-wide-hud.jpg",
+    "w": 2414,
+    "h": 902,
+    "dur": 13.45,
+    "bytes": {
+      "webm": 5274580,
+      "mp4": 6963394
+    },
+    "hud": true,
+    "posterStep": 0,
+    "exampleStep": 80,
+    "fps": 20
+  },
+  "trailer": {
+    "base": "assets/trailer/jam-trailer",
+    "poster": "assets/trailer/jam-trailer.jpg",
+    "dur": 59.0,
+    "bytes": {
+      "webm": 9893652,
+      "mp4": 11118528
+    }
+  }
+}

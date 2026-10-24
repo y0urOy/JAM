@@ -1,0 +1,154 @@
+# @package _global_
+
+# Native-causal Qwen3.5 counterpart of the FLUX.2 RoboTwin recipe of the
+# released ImageWAM checkpoint.  It uses the same action architecture as the
+# LIBERO Qwen3.5 recipe (paper: LIBERO 96.55, LIBERO-Plus 81.14).
+# Scientific budget and data semantics are held fixed against FLUX:
+#   3 cameras, 16 actions, endpoint t/t+16, 5 epochs, global batch 384.
+# Qwen consumes three native square views rather than the FLUX VAE montage.
+
+defaults:
+  - override /data: robotwin_omnigen2
+  - override /model: jam_qwen35_native_action_foresight
+  - _self_
+
+data:
+  train:
+    shape_meta:
+      images:
+        - key: cam_high
+          raw_shape: [3, 480, 640]
+          shape: [3, 224, 224]
+        - key: cam_left_wrist
+          raw_shape: [3, 480, 640]
+          shape: [3, 224, 224]
+        - key: cam_right_wrist
+          raw_shape: [3, 480, 640]
+          shape: [3, 224, 224]
+    # Decode only the observations consumed by the student/teacher.  The
+    # action trajectory remains all 16 steps and is therefore unchanged.
+    endpoint_frames_only: true
+    emit_uint8_video: false
+    num_frames: 17
+    action_video_freq_ratio: 1
+    video_size: [224, 672]
+    concat_multi_camera: horizontal
+    robotwin_camera_layout: qwen_horizontal_224
+    require_text_cache: false
+    qwen_text_cache_dir: null
+    lerobot_video_backend: pyav
+    processor:
+      image_obs_steps: 2
+      num_output_cameras: 3
+      train_transforms:
+        - _target_: jam_multimodal.datasets.lerobot.transforms.image.ToTensor
+        - _target_: torchvision.transforms.Resize
+          size: [224, 224]
+      val_transforms:
+        - _target_: jam_multimodal.datasets.lerobot.transforms.image.ToTensor
+        - _target_: torchvision.transforms.Resize
+          size: [224, 224]
+  val:
+    shape_meta:
+      images: ${data.train.shape_meta.images}
+    endpoint_frames_only: true
+    emit_uint8_video: false
+    num_frames: 17
+    action_video_freq_ratio: 1
+    video_size: [224, 672]
+    concat_multi_camera: horizontal
+    robotwin_camera_layout: qwen_horizontal_224
+    require_text_cache: false
+    qwen_text_cache_dir: null
+    lerobot_video_backend: pyav
+    pretrained_norm_stats: ${data.train.pretrained_norm_stats}
+    processor:
+      image_obs_steps: 2
+      num_output_cameras: 3
+      train_transforms: ${data.train.processor.train_transforms}
+      val_transforms: ${data.train.processor.val_transforms}
+
+model:
+  image_size: 224
+  num_views: 3
+  proprio_dim: ${data.train.processor.proprio_output_dim}
+  context_dim: 2048
+  predictor_type: imagewam_transformer
+  tensor_native_preprocessing: true
+  # Exact execution-only optimization (bitwise-equal outputs).
+  batch_equal_grid_vision_attention: true
+  # Selective vision recomputation permits larger per-GPU batches (for example
+  # b48/GA1) without the missing-gradient failure of whole-Action checkpointing.
+  vision_gradient_checkpointing: true
+  vision_gradient_checkpointing_blocks: 24
+  use_gradient_checkpointing: false
+  action_fusion_type: qwen_native_mot
+  action_dit_pretrained_path: null
+  action_dit_pretrained_layer_mapping: null
+  skip_dit_load_from_pretrain: false
+  action_dit_config:
+    action_dim: ${data.train.processor.action_output_dim}
+    max_action_horizon: 64
+    timestep_embed_dim: 256
+    initializer_range: null
+    use_gradient_checkpointing: false
+    action_attention_mode: causal
+    skip_discarded_prefix_mlp: true
+    skip_discarded_prefix_query: false
+  loss:
+    lambda_action: 1.0
+    lambda_foresight: 0.3
+  foresight:
+    enabled: true
+    load_teacher: true
+    teacher_mode: frozen_pretrained
+    teacher_random_seed: 42
+    teacher_early_exit: true
+    teacher_first: false
+    layer: 13
+    # robotwin_omnigen2 uses the full 17-position RGB grid logically.  With
+    # endpoint-only decoding, logical [0,16] maps to physical tensor [0,1].
+    frame_offsets: [16]
+    offset_weights: null
+
+# Release-matched optimizer budget: 8 GPUs x b12 x GA4 = global batch 384
+# (b24/GA2 and b48/GA1 give the same global batch).
+batch_size: 12
+gradient_accumulation_steps: 4
+num_workers: 4
+prefetch_factor: 2
+# Persistent PyAV workers have produced late native worker crashes (SIGSEGV).
+persistent_workers: false
+dataloader_multiprocessing_context: spawn
+dataloader_non_blocking: true
+
+learning_rate: 1.0e-4
+weight_decay: 1.0e-2
+lr_scheduler_type: cosine
+warmup_steps: null
+num_epochs: 5
+max_steps: null
+max_grad_norm: 1.0
+mixed_precision: bf16
+seed: 42
+
+log_every: 10
+gather_metrics_every_step: false
+rank_timer_every: 0
+log_cuda_memory: false
+eval_every: 0
+save_every: 5000
+save_full_state: true
+keep_latest_state_only: true
+resume: null
+
+# Preserve the verified Qwen optimizer path and keep every foreach tensor group
+# below the size that triggered the historical CUDA AdamW corruption.
+optimizer_foreach: true
+optimizer_max_group_numel: 1000000000
+
+wandb:
+  enabled: false
+  workspace: null
+  project: jam_qwen35
+  name: robotwin_qwen35_native_action24_causal_l13_future16_lambda03

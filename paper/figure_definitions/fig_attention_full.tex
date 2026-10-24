@@ -1,0 +1,30 @@
+\begingroup
+\makeatletter
+\def\@captype{figure}
+\makeatother
+\setlength{\parskip}{0pt}
+\centering
+\definecolor{wink}{HTML}{293340}\definecolor{wmuted}{HTML}{7A8590}
+\resizebox{0.80\linewidth}{!}{%
+\begin{tikzpicture}[x=1cm,y=1cm]
+  \tikzset{
+    colhead/.style={font=\tiny\bfseries,text=wink,anchor=south,inner sep=0pt},
+    rowlab/.style={font=\scriptsize,text=wink,rotate=90,anchor=center,inner sep=0pt,align=center},
+  }
+  \newcommand{\cellsq}[3]{\node[anchor=south west,inner sep=0pt] at (#1,#2) {\includegraphics[width=2.05cm]{Figures/attention/cells6/#3}};}
+  \foreach \c/\name in {0/Image,1/{ImageWAM (Ovis-U1)},2/{\modelname{} (Ovis-U1)},3/Difference,4/{\modelname{} (DINOv2-L)},5/{\modelname{} (Qwen3.5-2B)}}{
+    \node[colhead] at ({0.75+\c*2.15+1.025},8.63) {\name};
+  }
+  \foreach \r/\pre/\lab in {0/S1/{LIBERO-Goal},1/S2/{LIBERO-Long},2/S3/{LIBERO-Plus\\camera},3/S4/{LIBERO-Plus\\layout}}{
+    \node[rowlab] at (0.40,{6.47-\r*2.15+1.025}) {\lab};
+    \foreach \c/\fam in {0/image,1/native,2/yak,3/diff,4/dinol,5/qwen}{
+      \cellsq{0.75+\c*2.15}{6.47-\r*2.15}{\pre_agent_\fam.png}
+    }
+  }
+  \draw[wmuted,line width=0.3pt,dash pattern=on 1.4pt off 1.4pt] (9.30,0.02) -- (9.30,9.25);
+\end{tikzpicture}%
+}
+\caption{Action-to-visual attention in the agent view on LIBERO and LIBERO-Plus. Maps show attention above each policy's mean using the normalization in Appendix~\ref{app:attention}. Difference compares display intensities: red indicates higher values for \modelname{}, blue for ImageWAM.}
+\label{fig:attentionfull}
+\par
+\endgroup

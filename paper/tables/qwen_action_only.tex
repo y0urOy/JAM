@@ -1,0 +1,25 @@
+\begin{table}[htbp]
+\vspace{-2mm}
+\caption{Action-only controls on LIBERO-Plus. Success rates are in percent; AVG is micro-averaged. Bold marks the higher score within each backbone pair.}
+\vspace{2mm}
+\label{tab:qwenactiononly}
+\centering
+\small
+\setlength{\tabcolsep}{4pt}
+\renewcommand{\arraystretch}{1.15}
+\begin{tabular*}{\textwidth}{@{\extracolsep{\fill}}l ccccccc c@{}}
+\toprule
+Method & Camera & Robot & Language & Light & Background & Noise & Layout & AVG \\
+\midrule
+
+
+
+Qwen3.5-2B action-only & 80.00 & \textbf{68.02} & \textbf{72.54} & 92.55 & 54.84 & 93.02 & 75.45 & 77.03 \\
+\modelname{} (Qwen3.5-2B) & \textbf{80.83} & 61.42 & 71.72 & \textbf{93.79} & \textbf{81.72} & \textbf{94.19} & \textbf{84.55} & \textbf{81.14} \\
+\midrule
+DINOv2-L action-only & 37.92 & 32.99 & \textbf{86.48} & \textbf{86.96} & \textbf{85.48} & 78.29 & 72.73 & 68.26 \\
+\modelname{} (DINOv2-L) & \textbf{55.42} & \textbf{39.09} & 80.74 & 85.71 & 77.42 & \textbf{81.40} & \textbf{73.18} & \textbf{70.39} \\
+\bottomrule
+\end{tabular*}
+\vspace{-2mm}
+\end{table}

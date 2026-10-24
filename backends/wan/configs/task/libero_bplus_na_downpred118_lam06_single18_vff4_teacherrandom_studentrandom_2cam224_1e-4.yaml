@@ -1,0 +1,45 @@
+# @package _global_
+# Student-initialization ablation: retain the exact frozen-random-teacher
+# vff4/[0,1,2,3]/single18 recipe, but initialize only the trainable policy video
+# Wan randomly. VAE, cached text context, and the ActionDiT backbone remain
+# pretrained. Student seed 43 is isolated from teacher seed 42.
+defaults:
+  - override /data: libero_2cam
+  - override /model: jam_wan_foresight_bplus
+  - _self_
+
+batch_size: 16
+num_workers: 2
+
+data:
+  train:
+    video_future_frames: 4      # 13 video frames -> 4 latent; action window unchanged (32)
+
+model:
+  skip_video_dit_load_from_pretrain: true
+  video_dit_random_seed: 43
+  mot_checkpoint_mixed_attn: true
+  foresight:
+    teacher_mode: frozen_random
+    teacher_random_seed: 42
+    layers: [18]
+    encoder_layers: [18]
+    action_layers: null
+    offsets: [0, 1, 2, 3]
+    offset_weights: null
+    lambda_foresight: 0.6
+    projector_type: transformer
+    projector_hidden_dim: 1536
+    projector_ffn_dim: 6144
+    projector_num_layers: 2
+
+lr_scheduler_type: "cosine"
+learning_rate: 1e-4
+num_epochs: 10
+max_steps: null
+log_every: 10
+save_every: 10000
+eval_every: 0
+gradient_accumulation_steps: 1
+weight_decay: 1e-2
+resume: null

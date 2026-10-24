@@ -1,0 +1,58 @@
+# Ovis-ImageWAM action stack with matched DINOv3-L/16 student and teacher.
+_target_: jam_multimodal.runtime.create_jam_ovis_u1
+ovis_u1_model_path: ???
+load_condition_encoder: true
+proprio_dim: null
+mot_checkpoint_mixed_attn: true
+mot_gqa_implementation: repeat
+mot_force_flash_attention: false
+action_dit_pretrained_path: null
+
+action_dit_config:
+  action_dim: ${data.train.processor.action_output_dim}
+  residual_dim: 1536
+  num_heads: 12
+  num_layers_double: 6
+  num_layers_single: 12
+  mlp_ratio: 4.0
+  qkv_bias: true
+  max_action_horizon: 64
+  use_gradient_checkpointing: ${model.mot_checkpoint_mixed_attn}
+
+video_scheduler:
+  train_shift: 5.0
+  infer_shift: 5.0
+  num_train_timesteps: 1000
+action_scheduler:
+  train_shift: 5.0
+  infer_shift: 5.0
+  num_train_timesteps: 1000
+
+loss:
+  lambda_video: 0.0
+  lambda_action: 1.0
+
+ssl_vision:
+  enabled: true
+  backend: dinov3_official
+  model_id: checkpoints/dinov3-vitl16-lvd1689m/dinov3_vitl16_pretrain_lvd1689m-8aa4cbdd.pth
+  official_repo_path: ${oc.env:IMAGEWAM_DINOV3_REPO,./third_party/dinov3}
+  local_files_only: true
+  image_size: 224
+  num_views: 2
+  pixel_mean: [0.485, 0.456, 0.406]
+  pixel_std: [0.229, 0.224, 0.225]
+  attn_implementation: sdpa_official
+  gradient_checkpointing: false
+
+foresight:
+  enabled: true
+  load_teacher: true
+  teacher_type: external_ssl
+  offsets: [1]
+  lambda_foresight: 0.3
+  # DINOv3-L has the same 1024 hidden size as DINOv2-L.
+  projector_hidden_dim: 512
+  projector_ffn_dim: 2048
+  projector_num_layers: 2
+  projector_num_heads: 8

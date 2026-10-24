@@ -1,0 +1,72 @@
+# @package _global_
+# RoboTwin transfer of the Wan JAM LIBERO target recipe:
+# student Wan layer18 -> frozen pretrained VAE-direct future-only [1,2].
+# Training with the compact raw-VAE cache and data.train.first_frame_only=true
+# runs no frozen Wan teacher and no future RGB/VAE work online.
+
+defaults:
+  - override /data: robotwin
+  - override /model: jam_wan_foresight_bplus
+  - _self_
+
+# 32 GPUs x b32 = official RoboTwin global batch 1024.
+batch_size: 32
+num_workers: 8
+
+data:
+  train:
+    # Standard 33-action / 9-RGB-frame window -> 3 causal VAE latent positions.
+    # This must remain zero; it is an extension count, not the number of targets.
+    video_future_frames: 0
+
+model:
+  # The cached+first-frame path fits b32 on a 96 GB GPU without activation
+  # checkpoint recomputation.
+  mot_checkpoint_mixed_attn: false
+  foresight:
+    target_type: vae_direct
+    teacher_mode: frozen_pretrained
+    layers: [18]
+    encoder_layers: [0]
+    action_layers: null
+    offsets: [1, 2]
+    offset_weights: null
+    lambda_foresight: 0.6
+    projector_type: transformer
+    projector_hidden_dim: 1536
+    projector_ffn_dim: 6144
+    projector_num_layers: 2
+    # Kept null so the same task can extract the cache. Supply the completed
+    # cache root and data.train.first_frame_only=true for cached training.
+    target_cache_roots: null
+    input_latent_cache_roots: null
+    val_target_cache_roots: null
+    val_input_latent_cache_roots: null
+
+# Preserve the official RoboTwin five-epoch/sample budget. At 6,011,575 train
+# windows and global batch 1024, the current Trainer resolves exactly 29,355
+# optimizer steps.
+lr_scheduler_type: cosine
+learning_rate: 1e-4
+num_epochs: 5
+max_steps: null
+log_every: 10
+save_every: 5000
+# Keep a full resumable state every 5k steps. This changes only recovery
+# granularity and storage, not model optimization.
+save_full_state: true
+# Retain every complete 5k recovery point. Periodic weight files are retained
+# independently; the final 29,355-step endpoint is always saved as well.
+keep_latest_state_only: false
+# The official task runs its deterministic one-sample/rank validation every
+# 500 optimizer steps.  Validation targets are computed online from the same
+# frozen pretrained VAE; the compact cache remains train-only.
+eval_every: 500
+
+gradient_accumulation_steps: 1
+weight_decay: 1e-2
+resume: null
+
+# Weights & Biases logging stays off, as in the default training config.
+wandb:
+  enabled: false
