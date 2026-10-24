@@ -1052,19 +1052,19 @@ function initRobust() {
    per control step, written at 24 fps for 20 Hz control, so 1× is real simulated time (playbackRate = speed × 20/24)
    and the clocks show step / 20 seconds. RoboTwin control steps have no fixed duration (each move is TOPP-timed), so
    both RoboTwin pairs run on RoboTwin's own video clock: 1× = 10 control steps per second, as its evaluator records. */
-// RoboTwin 2.0 pairs, head camera. Can holds one frame per control step at 10 fps; Blocks holds one frame per 24-step
-// policy call at 4 fps, so hz = 10/24 puts it on the same clock as Can. The first frames of each pair match.
+// RoboTwin 2.0 pairs, head camera, one frame per control step at 10 fps. Each pair starts from the same scene (matching
+// first frames); in Blocks both policies also receive the same instruction.
 const ROBOTWIN_PAIRS = [
   { slug: 'can', bench: 'RoboTwin 2.0', setting: 'Clean', task: 'Put the can in the basket', short: 'Can', hz: 10, ar: '714 / 464', arn: 714 / 464,
     rec: '1× = 10 control steps per second, as RoboTwin records: one frame per control step',
     note: 'FastWAM knocks over the can. Wan (distilled) places it in the basket.',
     base: { method: 'FastWAM (released)', outcome: 'fail', v: 'Knocks over the can', dur: 70, fps: 10 },
     ours: { method: 'JAM (Wan)', outcome: 'success', v: 'Can in the basket', dur: 22.3, fps: 10 } },
-  { slug: 'blocks', bench: 'RoboTwin 2.0', setting: 'Randomized', task: 'Stack the red, green, and blue blocks', short: 'Blocks', hz: 10 / 24, ar: '714 / 464', arn: 714 / 464,
-    rec: '1× = 10 control steps per second, as RoboTwin records: one frame per 24-step policy call',
-    note: 'FastWAM’s stack falls apart. Wan (distilled) completes it.',
-    base: { method: 'FastWAM (released)', outcome: 'fail', v: 'Stack falls apart', dur: 12.5, fps: 4 },
-    ours: { method: 'JAM (Wan)', outcome: 'success', v: 'Stack complete', dur: 5, fps: 4 } },
+  { slug: 'blocks', bench: 'RoboTwin 2.0', setting: 'Randomized', task: 'Stack the red, green, and blue blocks', short: 'Blocks', hz: 10, ar: '714 / 464', arn: 714 / 464,
+    rec: '1× = 10 control steps per second, as RoboTwin records: one frame per control step',
+    note: 'FastWAM never completes the stack in 1,200 steps. JAM (Wan) stacks all three blocks.',
+    base: { method: 'FastWAM (released)', outcome: 'fail', v: 'Never completes the stack', dur: 120, fps: 10 },
+    ours: { method: 'JAM (Wan)', outcome: 'success', v: 'Stack complete', dur: 43.4, fps: 10 } },
 ];
 const PAIRS = [...D.rollouts.pairs, ...ROBOTWIN_PAIRS];
 const CTRL_HZ = D.rollouts.ctrlHz;
@@ -1155,6 +1155,8 @@ function thLoad(i) {
   if (TH.load && TH.load.i === i) return TH.load.p;
   if (TH.load) TH.load.ctrl.abort();
   thPause(); thSelect(i);
+  // drop the previous pair's video so the new posters (frame 0) show while the new clips load
+  for (const v of [vb, vo]) { if (v._objURL) { URL.revokeObjectURL(v._objURL); v._objURL = null; } v.removeAttribute('src'); v.load(); }
   TH.loaded = -1; TH.t = 0;
   const P = PAIRS[i], mm = (M.rollouts || {})[P.slug] || {}, btn = $('#th-play');
   const ctrl = typeof AbortController === 'function' ? new AbortController() : { abort() {}, signal: undefined };

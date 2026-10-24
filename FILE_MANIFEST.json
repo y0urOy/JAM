@@ -6388,8 +6388,8 @@
     },
     {
       "path": "website/README.md",
-      "bytes": 2380,
-      "sha256": "41a5d0167f0c68365ac6cd596bacfe7691ea137005cec666837735c9611cb310"
+      "bytes": 2379,
+      "sha256": "fe3afe14299f72a3b1323d127261906b09da01c8b274726a3814b2b3c451b688"
     },
     {
       "path": "website/assets/analysis/attention-wide-hud.jpg",
@@ -6678,33 +6678,33 @@
     },
     {
       "path": "website/assets/rollouts/blocks-base.jpg",
-      "bytes": 48476,
-      "sha256": "22acbff2f054eb541bbd41f8a4cb82512f658e656215c87b6bfaaa2ea3198c34"
+      "bytes": 49038,
+      "sha256": "c678df7c6f02425efbbb9b8f8102adb8af7c45acee1a915c7db10325be1e2ae4"
     },
     {
       "path": "website/assets/rollouts/blocks-base.mp4",
-      "bytes": 1253506,
-      "sha256": "0db53c0958ffecb424de0b080ce64efbd5a957096f3a10fdfe84e72939eeba8a"
+      "bytes": 6606762,
+      "sha256": "6db71fad04f48408d91828dd0d56c7ff218ce01a5d8bea443e15f238778180f4"
     },
     {
       "path": "website/assets/rollouts/blocks-base.webm",
-      "bytes": 562319,
-      "sha256": "a43c3fa3a08abb3960ad0e0dfc79e7d2c87472defdaf0bee5dd3c82738d88c41"
+      "bytes": 5777516,
+      "sha256": "74d6a07d2fb2c4a7432a20a15753517b3146b237385430749bdd6fb425b6784f"
     },
     {
       "path": "website/assets/rollouts/blocks-ours.jpg",
-      "bytes": 48553,
-      "sha256": "d0c100e77d413dfaa7d7b598faaad7609beb13e040360f6ecbeba1d658d4b09f"
+      "bytes": 49105,
+      "sha256": "915822159c5928d9e282f745f140ccaa0d3e95701b5fc180c82ba4a72deb7f22"
     },
     {
       "path": "website/assets/rollouts/blocks-ours.mp4",
-      "bytes": 480168,
-      "sha256": "ef316a5b7af8f71825cd08e93adbbb95ad694038e05677b7102749119e93c25a"
+      "bytes": 2373731,
+      "sha256": "312f367a1ca90064c3a67b6599abcbcc3db248b2063c4cd27e514172978631ea"
     },
     {
       "path": "website/assets/rollouts/blocks-ours.webm",
-      "bytes": 228485,
-      "sha256": "83d68b404294e5abf114e907a7e4b21f59cf4adaae5cc7a3c983ea743be407ad"
+      "bytes": 2037382,
+      "sha256": "bc3ea0e7a75c4987826f307b083f431c5870a7885b8b8696220b83f1ea5487fa"
     },
     {
       "path": "website/assets/rollouts/cabinet-base.jpg",
@@ -6873,13 +6873,13 @@
     },
     {
       "path": "website/index.html",
-      "bytes": 292228,
-      "sha256": "96eed26f47fced2dbd78ac0e04c643384cfb51655030544fb6eeafe3bd65408b"
+      "bytes": 292456,
+      "sha256": "651e8f13889b7d6e7fba4f56d0ddd9dbeab0fcfa07feb77d11646db7755d4628"
     },
     {
       "path": "website/src/app.js",
-      "bytes": 135435,
-      "sha256": "8b8a9d9874fce69838e72b6d93868df89ff8a7e354c9dadaa2cdb2f18fb33473"
+      "bytes": 135660,
+      "sha256": "26f1218d7d4a6f095ebec0c88308631d912797f841982a247d43ac339d2236c8"
     },
     {
       "path": "website/src/build.py",
@@ -6893,8 +6893,8 @@
     },
     {
       "path": "website/src/media.json",
-      "bytes": 1825,
-      "sha256": "585e491afbd259438076afa18a11d52df083b9e766ab874f10c638b30b109a5b"
+      "bytes": 1828,
+      "sha256": "1789d83fe38623050567490609acd4fa4de00c62a3e54a982cf73f812c7f6237"
     },
     {
       "path": "website/src/page.html",
