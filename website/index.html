@@ -406,6 +406,7 @@ details.how .how-list b { font: 600 var(--fs-micro)/1 var(--font-mono); letter-s
 .stats dt { font: 500 var(--fs-micro)/1.3 var(--font-mono); color: var(--muted); letter-spacing: .08em; text-transform: uppercase; }
 .stats dd { margin: 6px 0 0; font: 700 21px/1.1 var(--font-display); color: var(--ink); font-variant-numeric: tabular-nums; }
 .stats dd.c { color: var(--cyan); }
+.stats dd sup, .tip b sup { font-size: .62em; line-height: 0; vertical-align: .62em; margin-left: .04em; letter-spacing: .02em; } /* exponents */
 .stats dd small { display: inline-block; font: 400 var(--fs-micro)/1.35 var(--font-mono); color: var(--muted); margin-left: 8px; letter-spacing: .02em; white-space: nowrap; } /* on the value's line */
 .robust .src, .boards .note { margin-top: 12px; }
 /* robustness as a compact full-width card under the ablation grid */
@@ -1027,6 +1028,9 @@ const autoMotion = !reduced && !saveData;
 function mediaCanRun(v) { const dialog = document.querySelector('dialog[open]'); return !document.hidden && (!dialog || dialog.contains(v)); }
 function videoInView(v) { const r = v.getBoundingClientRect(); return r.width > 0 && r.bottom > 54 && r.top < innerHeight && r.right > 0 && r.left < innerWidth; }
 const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+// "9.69×10⁻³⁰" -> 9.69×10<sup>−30</sup>: the display fonts lack ⁻ and ⁰, so an exponent is set in ordinary digits
+const SUP = { '⁻': '−', '⁰': '0', '¹': '1', '²': '2', '³': '3', '⁴': '4', '⁵': '5', '⁶': '6', '⁷': '7', '⁸': '8', '⁹': '9' };
+const supHTML = s => esc(s).replace(/[⁻⁰¹²³⁴⁵⁶⁷⁸⁹]+/g, m => `<sup>${[...m].map(c => SUP[c]).join('')}</sup>`);
 const MINUS = '−';
 const pc = x => x.p + '%';                         // printed value + percent sign
 const where = x => String(x.w).replace(/ (text|caption)$/, '');
@@ -2003,13 +2007,13 @@ function renderRobust() {
   }
   // stat tiles
   const st = $('#rb-stats'); st.textContent = '';
-  const add = (k, v, s, tipFn, c) => { const d = H('div', null, st); H('dt', { text: k }, d); const dd = H('dd', { text: v, cls: c || null }, d); if (s) H('small', { text: s }, dd); if (tipFn) bindTip(d, tipFn); };
+  const add = (k, v, s, tipFn, c) => { const d = H('div', null, st); H('dt', { text: k }, d); const dd = H('dd', { html: supHTML(v), cls: c || null }, d); if (s) H('small', { text: s }, dd); if (tipFn) bindTip(d, tipFn); };
   // Table 20's Δ comes from unrounded rates (79.95 − 65.27 = 14.68 vs printed +14.67); the tooltip's source line says so
   add('Average gain', `${P.delta.p} pts`, `${P.from.p} → ${P.to.p}`,
     () => `<b>${P.delta.p} pts</b> task-weighted LIBERO-Plus success.<br>${esc(P.base)} ${pc(P.from)} → ${esc(P.jam)} ${pc(P.to)} (${esc(where(P.from))}).${tipSrc('Δ from unrounded rates · ' + where(P.delta))}`, 'c');
   add(`${RB.ciLevel.p} CI`, `[${P.ciLo.p}, ${P.ciHi.p}]`, null,
     () => `<b>[${P.ciLo.p}, ${P.ciHi.p}]</b> ${RB.ciLevel.p} percentile interval from ${RB.resamples.p} task-bootstrap resamples.${tipSrc(where(P.ciLo) + ' · ' + where(RB.resamples))}`);
-  add('McNemar p', P.p.p, null, () => `<b>${esc(P.p.p)}</b> exact two-sided McNemar test on matched tasks.${tipSrc(where(P.p))}`);
+  add('McNemar p', P.p.p, null, () => `<b>${supHTML(P.p.p)}</b> exact two-sided McNemar test on matched tasks.${tipSrc(where(P.p))}`);
   const sd = D.abl.seeds.rows[rbPair === 'ovis' ? 1 : 0];
   add('3 runs', `${sd[2].p} ± ${sd[3].p}`, null,
     () => `<b>${sd[2].p} ± ${sd[3].p}</b> mean ± sample SD of ${esc(sd[0])} over three training runs: ${sd[1].map(x => x.p).join(', ')}. “${esc(D.abl.seeds.q2.t)}” “${esc(D.abl.seeds.q.t)}”${tipSrc(where(sd[2]) + ' · ' + D.abl.seeds.q.w)}`);

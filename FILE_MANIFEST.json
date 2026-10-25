@@ -6873,13 +6873,13 @@
     },
     {
       "path": "website/index.html",
-      "bytes": 292951,
-      "sha256": "bda2ffd667035df5290319ab7c45ff42a8f76158fac47f8ee98a97bf97da310e"
+      "bytes": 293515,
+      "sha256": "b2b5dc8d375a20f464c741d6681cabf334c23b014c3dff0992b208c897680b67"
     },
     {
       "path": "website/src/app.js",
-      "bytes": 136145,
-      "sha256": "c8b2bc9586ad20bb5b3a48c1745f7f168fd291471a97720070c12d8e118bf40b"
+      "bytes": 136563,
+      "sha256": "a333bdb41a9c7b28be3917b44779ad77da1f43be8cc205cf61d822456b4629eb"
     },
     {
       "path": "website/src/build.py",
@@ -6903,8 +6903,8 @@
     },
     {
       "path": "website/src/styles.css",
-      "bytes": 58030,
-      "sha256": "a5360f3bd5a209141d8e5fd0a36eec85eaa80fb147d4f6838de83e419f489991"
+      "bytes": 58176,
+      "sha256": "4333bcec8a66cca7fd13ee82dc58d0875a736d2937084a3b9a107af7c0cace79"
     }
   ]
 }
