@@ -3,7 +3,7 @@
   "repository": {
     "repo_id": "y0urOy/JAM",
     "url": "https://huggingface.co/y0urOy/JAM",
-    "layout": "one folder per policy; checkpoint.path is relative to the folder, initialization_files[].path_in_repo to the repository root",
+    "layout": "one folder per policy; checkpoint.path is relative to the folder",
     "source_pin": "Each folder's model_manifest.json pins the exact commit of this repository that loads the policy; release.py checks it."
   },
   "models": [
@@ -51,14 +51,7 @@
           "No image/video generation or foresight teacher is needed during action inference."
         ]
       },
-      "initialization_files": [
-        {
-          "path_in_repo": "libero/wan/initialization/ActionDiT_linear_interp_Wan22_alphascale_1024hdim.pt",
-          "bytes": 2042025883,
-          "sha256": "7bd65e1986accaaf2e8dd5e59b5e98ef348d7c2f1d88ab2df010eb954a441445",
-          "role": "original action-expert initialization for reproducing training, used as MODEL_ROOT/init/wan_action.pt; not required for evaluation"
-        }
-      ],
+      "initialization_files": [],
       "use": "Download the path_in_repo folder and follow its README.md and release.py; they keep the original checkpoint settings."
     },
     {
@@ -105,14 +98,7 @@
           "No image/video generation or foresight teacher is needed during action inference."
         ]
       },
-      "initialization_files": [
-        {
-          "path_in_repo": "libero/ovis-u1/initialization/ovis_action_7d.pt",
-          "bytes": 4146809153,
-          "sha256": "47b150795880e339e0ae453b50ee8385a4388a4c5ddac0c1172db2931bfc4d35",
-          "role": "original action-expert initialization for reproducing training; not required for evaluation"
-        }
-      ],
+      "initialization_files": [],
       "use": "Download the path_in_repo folder and follow its README.md and release.py; they keep the original checkpoint settings."
     },
     {

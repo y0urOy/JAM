@@ -7,7 +7,7 @@
       "JAM (Ovis-U1), LIBERO",
       "JAM (Qwen3.5-2B), LIBERO"
     ],
-    "also_included": "action-expert initializations for the Wan and Ovis-U1 policies"
+    "note": "Inference checkpoints only; build action-expert initializations for retraining with tools/init_actions.py."
   },
   "not_released": [
     "RoboTwin 2.0 policy weights and per-episode results",

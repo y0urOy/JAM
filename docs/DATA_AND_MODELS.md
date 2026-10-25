@@ -31,7 +31,7 @@ artifacts/
   runs/
 ```
 
-The Hugging Face dataset repositories distribute archives. Extract their ZIP files into the corresponding data directory, retaining `meta/`, `data/` and `videos/`. Check the resulting directory layout against the original backend READMEs. Do not concatenate train and held-out episodes or substitute a different robot dataset. Keep each trained model's own `dataset_stats.json` for evaluation.
+The Hugging Face dataset repositories distribute `.tar.gz` archives: extract the four LIBERO archives into `data/libero_mujoco3.3.2/`, and join the RoboTwin parts before extracting (`cat robotwin2.0.tar.gz.part-* | tar -xzf -` inside `data/robotwin2.0/`), retaining `meta/`, `data/` and `videos/`. Check the resulting directory layout against the original backend READMEs. Do not concatenate train and held-out episodes or substitute a different robot dataset. Keep each trained model's own `dataset_stats.json` for evaluation.
 
 ## Action initialization
 
