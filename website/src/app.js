@@ -1618,10 +1618,12 @@ function initAttention() {
   videoInstrument(v, $('#att-play'), $('#att-scrub'), $('#att-time'), M.att);
   // how to read: the six columns, the two kinds of map, and Figure 5's 100-frame shares (text / image / action)
   const sh = A.rows.map(r => `${esc(r.label)} ${r.v.map(x => x.p).join('/')}`).join(' · ');
+  // the key set each JAM policy gives its largest share, read from the same shares
+  const top = A.rows.filter(r => /^JAM/.test(r.label)).map(r => `${A.keys[r.v.reduce((b, x, k) => (x.v > r.v[b].v ? k : b), 0)]} for ${esc(r.label)}`).join(', ');
   $('#att-how').innerHTML = `<ul class="how-list">` +
-    `<li><b>Panels</b><span>Agent view above wrist view: the image; ImageWAM and JAM, both on Ovis-U1; their difference; JAM on DINOv2-L and on Qwen3.5-2B. The paper’s example is step ${M.att.exampleStep}.</span></li>` +
-    `<li><b>Maps</b><span>Attention from the action tokens, shown above each policy’s own mean map, low to high. Difference: red favours JAM, blue ImageWAM.</span></li>` +
-    `<li><b>Shares</b><span>The bars show this frame. Over ${esc(A.frames.p.replace('reference frames', 'frames'))}, ${A.keys.join(' / ')}, %: ${sh}</span></li></ul>` +
+    `<li><b>Panels</b><span>Left to right: the camera image; ImageWAM and JAM, both on Ovis-U1; JAM minus ImageWAM; JAM on DINOv2-L and on Qwen3.5-2B. Agent view on top, wrist view below. The paper’s example is step ${M.att.exampleStep}.</span></li>` +
+    `<li><b>Maps</b><span>Where the action expert attends more than its own average over ${esc(A.frames.p)}: red far above it, dark blue at or below it. In the difference column, red marks more attention from JAM, blue more from ImageWAM, grey little difference.</span></li>` +
+    `<li><b>Shares</b><span>The bar beside each map splits this frame’s attention between text, image and action keys. Over all ${esc(A.frames.p.replace('reference frames', 'frames'))}, ${A.keys.join(' / ')} (%): ${sh}. The largest share is ${top}.</span></li></ul>` +
     `<p class="q">${esc(A.q.t)}</p>`;
 }
 
