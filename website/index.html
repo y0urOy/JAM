@@ -2512,6 +2512,7 @@ function initTarget() {
     io.observe($('#tg-fig'));
   } else TGI.on = true;
   renderTarget();
+  if (document.fonts && document.fonts.ready) document.fonts.ready.then(renderTarget); // the selected value is placed by measured width
 }
 
 
@@ -2630,29 +2631,32 @@ const COMP = [['Visual', 'tflops_visual', 'var(--c-slate)'], ['Action', 'tflops_
 const INK_ON = { 'var(--c-act)': 'var(--bg)', 'var(--c-fore)': 'var(--bg)', 'var(--c-gold)': 'var(--bg)', 'var(--c-gen)': 'var(--bg)', 'var(--c-vae)': 'var(--bg)' }; // in-bar text contrast
 function compTip(k, row, isBase) {
   const C = D.compute, T = C.tok;
-  if (k === 'Visual') return CMP.rec === 'wan' ? `Trainable visual branch. Wan processes ${T.gen.p} under generation and ${T.fore.v} under foresight, plus key and value projections of ${T.ctx.p} per block.` : 'Trainable visual branch.';
+  if (k === 'Visual') return CMP.rec === 'wan' ? `Trainable visual branch. Wan processes ${T.gen.p} under generation and ${T.fore.v} under foresight, plus key and value projections of ${T.ctx.p} per block.`
+    : 'Trainable visual branch. Ovis-U1 processes the 392-token observation and about 296 text tokens under both objectives, plus the 392-token generation target under generation.';
   if (k === 'Action') return 'Action expert, same under both objectives.';
   if (k === 'Head') return isBase ? `No prediction head (printed ${row.params_head.p}).` : `Training-only prediction head, ${row.params_head.p}M parameters, dropped after training.`;
   if (k === 'Target') return isBase ? `No foresight target (printed ${row.params_anchor.p}).` : CMP.rec === 'wan' ? `Online VAE-direct targets are counted in the VAE column; extra anchor parameters: ${row.params_anchor.p}M.` : CMP.mode === 'online' ? `Frozen Yak18 anchor (${row.params_anchor.p}M parameters) run to ${T.ovisDepth.p} for online targets.` : `Targets read from the cache; anchor parameters at training time: ${row.params_anchor.p}M.`;
-  if (k === 'VAE') return CMP.rec === 'wan' ? (isBase ? `Generation encodes the ${C.window.p}.` : CMP.mode === 'online' ? C.qvae.t : 'Cached foresight encodes only the current frame.') : 'VAE encoding.';
+  if (k === 'VAE') return CMP.rec === 'wan' ? (isBase ? `Generation encodes the ${C.window.p}.` : CMP.mode === 'online' ? C.qvae.t : 'Cached foresight encodes only the current frame.')
+    : isBase ? 'VAE encoding of the current image and the generation target.' : CMP.mode === 'online' ? 'VAE encoding of the current image and, for the online target, the future image.' : 'Cached targets: only the current image is encoded.';
   return '';
 }
 function renderCompute() {
   const C = D.compute[CMP.rec], base = C.base, jam = C[CMP.mode];
   press($('#cmp-rec'), CMP.rec); press($('#cmp-mode'), CMP.mode);
   const bn = CMP.rec === 'wan' ? 'FastWAM' : 'ImageWAM';
-  big('#compute-big', reductionText(jam.tflops_reduction), `Est. online FLOPs vs ${bn} · ${CMP.mode} targets`,
+  big('#compute-big', MINUS + esc(jam.tflops_reduction.p), `Est. online FLOPs vs ${bn} · ${CMP.mode} targets`,
     () => `<b>${MINUS}${jam.tflops_reduction.p}</b> estimated online TFLOPs per sample per update: ${esc(C.baseName)} ${base.tflops_total.p} → ${esc(C.jamName)} ${jam.tflops_total.p} (${CMP.mode} targets; ${esc(C.cfg)}).${tipSrc(where(jam.tflops_reduction) + ' · not wall-clock time')}`);
   const sv = $('#cmp-svg'), nar = cmpNarrow();
   sv.querySelectorAll(':scope > *').forEach(n => n.remove());
-  const VW = nar ? 420 : 1100, x0 = nar ? 8 : 196, W = nar ? 352 : 830, X = v => W * v / 16; // full panel width
+  const VW = nar ? 420 : 1100, x0 = nar ? 8 : 216, W = nar ? 352 : 810, X = v => W * v / 16; // bars start clear of the enlarged row labels
   const rowsY = nar ? [64, 148] : [46, 118], axY = nar ? 204 : 186, Hh = axY + 6;
   sv.setAttribute('viewBox', `0 0 ${VW} ${Hh}`);
   // the unit sits in the top-right corner, above the grid and the end of the axis
   S('text', { x: x0 + W, y: 12, 'text-anchor': 'end', cls: 'ax', text: 'TFLOPs per sample per update', 'font-size': nar ? 12 : null }, sv);
   for (const v of [0, 4, 8, 12, 16]) { S('line', { x1: x0 + X(v), y1: 22, x2: x0 + X(v), y2: axY - 18, cls: v ? 'grid-l' : 'base-l' }, sv); S('text', { x: x0 + X(v), y: axY, 'text-anchor': 'middle', cls: 'ax', text: v, 'font-size': nar ? 12 : null }, sv); }
+  const under = []; // values written under each bar, left to right
   [[C.baseName, base, 'generation', true], [C.jamName, jam, `foresight, ${CMP.mode} targets`, false]].forEach(([name, row, sub, isBase], i) => {
-    const y = rowsY[i];
+    const y = rowsY[i], low = []; under.push(low);
     const ny = nar ? y - 26 : y + 3, sy = nar ? y - 26 : y + 21;
     S('text', { x: 0, y: ny, cls: 'ax', text: name, style: `font-family:var(--font-display);font-weight:700;font-size:${nar ? 15 : 14}px;fill:${isBase ? 'var(--violet)' : 'var(--cyan)'}` }, sv);
     S('text', { x: nar ? VW : 0, y: sy, 'text-anchor': nar ? 'end' : null, cls: 'ax', text: sub }, sv);
@@ -2668,7 +2672,7 @@ function renderCompute() {
       if (tw + 8 > w - 2) {
         const lx = Math.max(x + w / 2 - tw / 2, outR + 7);
         t.setAttribute('x', lx.toFixed(1)); t.setAttribute('y', y + 33); t.setAttribute('text-anchor', 'start'); t.style.fill = col;
-        outR = lx + tw;
+        outR = lx + tw; low.push(t);
       }
       S('rect', { x, y: y - 16, width: Math.max(12, w), height: 38, cls: 'hit' }, g);
       bindTip(g, () => `<b>${c.p} TFLOPs</b> · ${k} · ${esc(name)}<br>${esc(compTip(k, row, isBase))}${!isBase && k !== 'Head' && k !== 'Target' ? `<br>Training-only parameters: head ${row.params_head.p}M, anchor ${row.params_anchor.p}M.` : ''}${tipSrc(where(c))}`, `${name}, ${k}: ${c.p} TFLOPs`, col);
@@ -2677,6 +2681,8 @@ function renderCompute() {
     S('text', { x: x + 10, y: y + 8, cls: 'v', text: row.tflops_total.p, style: 'font-family:var(--font-display);font-weight:700;font-size:14px;fill:var(--ink)' }, sv);
   });
   finish(sv);
+  // legibility scaling can widen the values under a bar after they were placed: re-space them, 7 units apart
+  for (const low of under) { let r = -1e9; for (const t of low) { const x = Math.max(+t.getAttribute('x'), r + 7); t.setAttribute('x', x.toFixed(1)); r = x + t.getComputedTextLength(); } }
 }
 function initCompute() {
   cmpNarrow = watchNarrow($('#cmp-box'), 520, renderCompute);
@@ -2685,6 +2691,7 @@ function initCompute() {
   const lg = $('#cmp-legend');
   COMP.forEach(([l, , c]) => { const s = H('span', null, lg); H('i', { cls: 'sq', style: `background:${c}` }, s); s.append(l); });
   renderCompute();
+  if (document.fonts && document.fonts.ready) document.fonts.ready.then(renderCompute); // value labels are placed by measured width
 }
 
 // =============================================================================================

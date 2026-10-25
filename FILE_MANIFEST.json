@@ -6873,13 +6873,13 @@
     },
     {
       "path": "website/index.html",
-      "bytes": 293515,
-      "sha256": "b2b5dc8d375a20f464c741d6681cabf334c23b014c3dff0992b208c897680b67"
+      "bytes": 294594,
+      "sha256": "ee9c072ee5ab6c1054956e2b891b863c7567e73257ea905836787b994620c63b"
     },
     {
       "path": "website/src/app.js",
-      "bytes": 136563,
-      "sha256": "a333bdb41a9c7b28be3917b44779ad77da1f43be8cc205cf61d822456b4629eb"
+      "bytes": 137642,
+      "sha256": "b26a5cff4f9cc9cc531c0c95744a4f605fc59ae5567975f476c9b8109506fbe4"
     },
     {
       "path": "website/src/build.py",
