@@ -1,18 +1,34 @@
-# JAM
+<div align="center">
+  <h1>Just Action Models</h1>
+  <h3>Vision-Language-Action or World-Action?</h3>
+  <p>
+    Yonghao Yu<sup>1</sup> &nbsp;·&nbsp;
+    Lang Huang<sup>2,✉</sup> &nbsp;·&nbsp;
+    Runyi Li<sup>1</sup> &nbsp;·&nbsp;
+    Toshihiko Yamasaki<sup>1</sup>
+  </p>
+  <p><sup>1</sup>The University of Tokyo &nbsp;&nbsp; <sup>2</sup>National Institute of Informatics</p>
+  <p>
+    <a href="https://y0uroy.github.io/JAM/"><img src="docs/assets/badges/website.svg" alt="Project page" height="20"></a>
+    <img src="docs/assets/badges/arxiv.svg" alt="arXiv: coming soon" title="arXiv identifier pending" height="20">
+    <a href="https://huggingface.co/y0urOy/JAM"><img src="docs/assets/badges/models.svg" alt="Hugging Face models" height="20"></a>
+    <a href="docs/INSTALL.md"><img src="docs/assets/badges/docs.svg" alt="Documentation" height="20"></a>
+  </p>
+</div>
 
-Official codebase for **Vision-Language-Action or World-Action? Just Action Models**.
+<p align="center">
+  <b>Learn from the future. Act in the present.</b><br>
+  Future observations supervise training. No image or video generation is needed.
+</p>
 
-[![Project Page](https://img.shields.io/badge/Project_Page-JAM-2ea44f.svg)](https://y0uroy.github.io/JAM/)
-![arXiv](https://img.shields.io/badge/arXiv-coming_soon-b31b1b.svg)
-[![Hugging Face Model](https://img.shields.io/badge/%F0%9F%A4%97%20Hugging%20Face-Model-f7c843)](https://huggingface.co/y0urOy/JAM)
-[![Hugging Face Dataset - LIBERO](https://img.shields.io/badge/%F0%9F%A4%97%20Hugging%20Face-Dataset%20LIBERO-f7c843)](https://huggingface.co/datasets/yuanty/LIBERO-fastwam)
-[![Hugging Face Dataset - RoboTwin](https://img.shields.io/badge/%F0%9F%A4%97%20Hugging%20Face-Dataset%20RoboTwin-f7c843)](https://huggingface.co/datasets/yuanty/robotwin2.0-fastwam)
-
-This repository contains the training and evaluation code for JAM on LIBERO, LIBERO-Plus and RoboTwin 2.0.
+This repository contains the training and evaluation code for JAM on [LIBERO](https://github.com/Lifelong-Robot-Learning/LIBERO),
+[LIBERO-Plus](https://github.com/sylvestf/LIBERO-plus) and [RoboTwin 2.0](https://github.com/RoboTwin-Platform/RoboTwin).
 JAM trains a pretrained backbone and an action expert with a foresight loss: a small head predicts frozen
 features of the recorded future from the current frame. No image or video is generated in training or at
-deployment. The code covers five backbones: Wan2.2, built on [FastWAM](https://github.com/yuantianyuan01/FastWAM),
-and Ovis-U1, FLUX.2, Qwen3.5-2B and DINOv2-B/L, built on [ImageWAM](https://github.com/yuyangalin/ImageWAM).
+deployment. The code covers five backbones: [Wan2.2](https://github.com/Wan-Video/Wan2.2), built on
+[FastWAM](https://github.com/yuantianyuan01/FastWAM), and [Ovis-U1](https://github.com/ATH-MaaS/Ovis-U1),
+[FLUX.2](https://github.com/black-forest-labs/flux2), [Qwen3.5-2B](https://github.com/QwenLM/Qwen3.5) and
+[DINOv2-B/L](https://github.com/facebookresearch/dinov2), built on [ImageWAM](https://github.com/yuyangalin/ImageWAM).
 
 <p align="center">
   <img src="website/assets/figures/fig2_method.png" alt="JAM: future-feature supervision during training; backbone and action expert at deployment" width="100%">
@@ -130,11 +146,11 @@ evaluation code; install its environment and assets from an upstream checkout, a
 The three LIBERO checkpoints are on [Hugging Face](https://huggingface.co/y0urOy/JAM), one folder per policy.
 Their recorded results:
 
-| Policy | Folder | Spatial | Object | Goal | Long | LIBERO | LIBERO-Plus |
-|---|---|---:|---:|---:|---:|---:|---:|
-| JAM (Wan) | [`libero/wan`](https://huggingface.co/y0urOy/JAM/tree/main/libero/wan) | 98.80 | 100.00 | 98.00 | 95.80 | 98.15 | 64.54 |
-| JAM (Ovis-U1) | [`libero/ovis-u1`](https://huggingface.co/y0urOy/JAM/tree/main/libero/ovis-u1) | 98.60 | 99.60 | 98.40 | 90.40 | 96.75 | 79.95 |
-| JAM (Qwen3.5-2B) | [`libero/qwen3.5-2b`](https://huggingface.co/y0urOy/JAM/tree/main/libero/qwen3.5-2b) | 97.80 | 99.60 | 97.20 | 91.60 | 96.55 | 81.14 |
+| Policy | Folder | LIBERO | LIBERO-Plus |
+|---|---|---:|---:|
+| JAM (Wan) | [`libero/wan`](https://huggingface.co/y0urOy/JAM/tree/main/libero/wan) | 98.15 | 64.54 |
+| JAM (Ovis-U1) | [`libero/ovis-u1`](https://huggingface.co/y0urOy/JAM/tree/main/libero/ovis-u1) | 96.75 | 79.95 |
+| JAM (Qwen3.5-2B) | [`libero/qwen3.5-2b`](https://huggingface.co/y0urOy/JAM/tree/main/libero/qwen3.5-2b) | 96.55 | 81.14 |
 
 LIBERO: 40 tasks × 50 episodes. LIBERO-Plus: the fixed 1,506-task subset, one episode per task, task-weighted.
 
@@ -150,8 +166,9 @@ lists their SHA256 checksums and inference settings.
 
 ## Training
 
-`tools/jam.py` runs the 48 named recipes in [recipes.json](reproduction/recipes.json): JAM policies, the FastWAM and
-ImageWAM generation baselines, action-only controls and ablations.
+`tools/jam.py` trains and evaluates the JAM recipes in [recipes.json](reproduction/recipes.json): `wan-jam`, `ovis-jam`,
+`qwen-jam`, `dino-b-jam`, `dino-l-jam` and `flux-jam-libero` on LIBERO, and `robotwin-wan-jam`, `robotwin-ovis-jam`,
+`robotwin-flux-jam` and `robotwin-qwen-jam` on RoboTwin 2.0.
 
 ```bash
 python tools/jam.py list
@@ -161,8 +178,7 @@ python tools/jam.py train-eval wan-jam --venv .venv-wan \
   --output artifacts/runs/wan-jam
 ```
 
-`train-eval` trains one model, then evaluates its final checkpoint, and stops on any failure. Use
-`wan-generation` or `ovis-generation` for the FastWAM or ImageWAM baselines. The launcher keeps the recipe's
+`train-eval` trains one model, then evaluates its final checkpoint, and stops on any failure. The launcher keeps the recipe's
 global batch on any GPU layout (`--micro-batch` fits memory, `--nodes`/`--node-rank`/`--master-addr` run
 multi-node), and `--dry-run` prints the plan without running it. See [docs/TRAINING.md](docs/TRAINING.md) for
 training budgets and the precomputed foresight-target cache.

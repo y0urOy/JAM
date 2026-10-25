@@ -23,8 +23,8 @@
     },
     {
       "path": "README.md",
-      "bytes": 9832,
-      "sha256": "ac6ea4300cbc03f4db2e1a1c851a0b0e4d18272087b7787ab44b3fb148da859f"
+      "bytes": 10350,
+      "sha256": "ab60ae97e7efdd7251ca8beeb267d45fd0d88ec5284bcdaf95a3c3960ac16e1d"
     },
     {
       "path": "THIRD_PARTY_NOTICES.md",
@@ -2270,6 +2270,26 @@
       "path": "docs/TRAINING.md",
       "bytes": 4957,
       "sha256": "154d89bf765c5ef4a665aacee6530f9df86915889c7f914a831f0596cda6cc3d"
+    },
+    {
+      "path": "docs/assets/badges/arxiv.svg",
+      "bytes": 887,
+      "sha256": "cc43d49241f4238ef937c746bcfe13c1698d3e71e65615dd04e7d10dcfc685ee"
+    },
+    {
+      "path": "docs/assets/badges/docs.svg",
+      "bytes": 879,
+      "sha256": "a559c218bc579b994240612790ec929c2ed5488eccec314ea08eeaf232665495"
+    },
+    {
+      "path": "docs/assets/badges/models.svg",
+      "bytes": 1037,
+      "sha256": "a2f1071f17a62b3452970332e7e34a5876560424cc110c6b8542fb1c450d5346"
+    },
+    {
+      "path": "docs/assets/badges/website.svg",
+      "bytes": 911,
+      "sha256": "6d29edf8648d4fdb845e62412f284f9a77f8f284ca37badfaadc27381213e1a2"
     },
     {
       "path": "environments/accelerate_zero0.yaml",
