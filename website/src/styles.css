@@ -250,7 +250,7 @@ details.how[open] summary::before, details.tv[open] summary::before { content: "
 details.how summary:hover, details.tv summary:hover { color: var(--ink); }
 details.how p, details.how li { font-size: 13.5px; color: var(--ink-2); line-height: 1.6; }
 details.how p { margin-top: 8px; max-width: 70em; }
-details.how .q { color: var(--ink); }
+details.how .q { color: var(--ink); max-width: none; } /* the closing quote runs the panel's full width (one line on desktop) */
 details.how cite { font: 400 var(--fs-micro)/1.5 var(--font-mono); font-style: normal; color: var(--muted); }
 /* compact how-to-read: one labelled line per element */
 details.how .how-list { list-style: none; margin: 10px 0 0; padding: 0; display: grid; gap: 7px; max-width: 76em; }

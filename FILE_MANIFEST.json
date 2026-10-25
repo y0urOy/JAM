@@ -6873,8 +6873,8 @@
     },
     {
       "path": "website/index.html",
-      "bytes": 294570,
-      "sha256": "3292f44fd693a535f5f5a6599fc29e2458ba527212c4aeb032de108cf337a6a0"
+      "bytes": 294661,
+      "sha256": "93232558074a4f3cc7817a2201d115930ba2b36751be3ce61f97667187753d26"
     },
     {
       "path": "website/src/app.js",
@@ -6903,8 +6903,8 @@
     },
     {
       "path": "website/src/styles.css",
-      "bytes": 58176,
-      "sha256": "4333bcec8a66cca7fd13ee82dc58d0875a736d2937084a3b9a107af7c0cace79"
+      "bytes": 58267,
+      "sha256": "20f2baddc1041c9685c09cbdabadb96c501a6d34ca85f9daffb1a5022aa0fbbc"
     }
   ]
 }
