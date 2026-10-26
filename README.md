@@ -75,7 +75,40 @@ JAM/
 
 ## Environment Setup
 
-The ten recipes share one pinned environment. Use Python 3.10:
+All ten recipes use **one shared Python environment** for Wan, Ovis-U1, FLUX.2, Qwen3.5 and DINOv2.
+Use Linux with Python 3.10 (including `venv`), an NVIDIA GPU and driver, the CUDA 12.8 toolkit (`nvcc`),
+and a compatible C/C++ compiler.
+
+**1. Clone the repository.**
+
+```bash
+git clone https://github.com/y0urOy/JAM.git
+cd JAM
+```
+
+**2. Create the shared environment and install dependencies.**
+
+```bash
+python3.10 tools/bootstrap.py --venv .venv --libero
+```
+
+The installer creates `.venv` itself and installs PyTorch 2.7.1 with CUDA 12.8 support, both JAM backends,
+the pinned dependencies, and the attention kernels. `--libero` also installs the LIBERO runtime libraries.
+
+**3. Activate and verify the installation.**
+
+```bash
+source .venv/bin/activate
+python -m pip check
+python tools/jam.py list
+```
+
+`pip check` should report `No broken requirements found`, and `jam.py list` should show the ten recipes below.
+Activate `.venv` again in each new terminal. Simulator checkouts and assets are prepared separately;
+RoboTwin also needs its simulator packages installed into this same environment. Follow
+[docs/INSTALL.md](docs/INSTALL.md) for compiler requirements and simulator setup.
+
+### Recipes
 
 | Policy | LIBERO recipe | RoboTwin 2.0 recipe |
 |---|---|---|
@@ -84,14 +117,6 @@ The ten recipes share one pinned environment. Use Python 3.10:
 | JAM (FLUX.2) | `libero-flux-jam` | `robotwin-flux-jam` |
 | JAM (Qwen3.5-2B) | `libero-qwen-jam` | `robotwin-qwen-jam` |
 | JAM (DINOv2-B / L) | `libero-dino-b-jam` / `libero-dino-l-jam` | |
-
-```bash
-python3.10 tools/bootstrap.py --venv .venv --libero
-source .venv/bin/activate
-```
-
-`--libero` also installs the LIBERO runtime. See [docs/INSTALL.md](docs/INSTALL.md) for the versions and for
-building flash-attn and causal-conv1d.
 
 ## Model Preparation
 

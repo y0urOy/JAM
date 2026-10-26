@@ -23,8 +23,8 @@
     },
     {
       "path": "README.md",
-      "bytes": 11413,
-      "sha256": "8b1eeff73758f3a1e2f6284b34f6f8a1773af749f5d0c9528e044a0383227695"
+      "bytes": 12312,
+      "sha256": "109816582cd2bbeb04c573347f250be251f3fbe28a4cd8c80c6d34c65aed0591"
     },
     {
       "path": "THIRD_PARTY_NOTICES.md",
@@ -1223,8 +1223,8 @@
     },
     {
       "path": "docs/INSTALL.md",
-      "bytes": 6581,
-      "sha256": "4368a6cf670b6865018b319de015fd6372fd68641c4ad757e37a93a18e3d0ead"
+      "bytes": 7995,
+      "sha256": "f4476dbd1b21a2a1eedfb1fa132b10b68f333eaf35b67907ca922d617d6ba5a1"
     },
     {
       "path": "docs/NAMING.md",

@@ -1,6 +1,48 @@
 # Installation
 
-Use Linux and Python 3.10. The recorded policy runtime used PyTorch 2.7.1, torchvision 0.22.1 and CUDA 12.8. The ten recipes share one environment. The installer creates a new venv and refuses to overwrite an existing one.
+All ten recipes share **one Python environment**, including both JAM backends and every backbone's dependencies.
+The recorded runtime used Linux, Python 3.10, PyTorch 2.7.1, torchvision 0.22.1 and CUDA 12.8.
+
+## Install the shared environment
+
+Prepare these system prerequisites first:
+
+- Git and Python 3.10 with the `venv` module and development headers.
+- An NVIDIA GPU and a driver supporting CUDA 12.8.
+- The CUDA 12.8 toolkit, with `nvcc` on `PATH` or available through `CUDA_HOME`.
+- A C/C++ compiler supported by that CUDA toolkit, for flash-attn and causal-conv1d builds.
+
+Clone the repository and run the installer from its root:
+
+```bash
+git clone https://github.com/y0urOy/JAM.git
+cd JAM
+
+# Check the prerequisites.
+python3.10 --version
+nvcc --version
+nvidia-smi
+
+# Preview the installation commands, then create .venv and install everything.
+python3.10 tools/bootstrap.py --venv .venv --libero --dry-run
+python3.10 tools/bootstrap.py --venv .venv --libero
+
+# Use the same environment for every recipe.
+source .venv/bin/activate
+python -m pip check
+python tools/jam.py list
+```
+
+`bootstrap.py` creates `.venv` automatically, installs both backends and their locked dependencies, builds the
+required kernels, and runs `pip check`. Choose a new environment path: the installer refuses to overwrite an
+existing one. A successful `pip check` prints `No broken requirements found`; `jam.py list` displays ten recipes.
+Activate this `.venv` in each new terminal, or pass `--venv .venv` to `tools/jam.py`.
+
+The CUDA-enabled PyTorch wheel supplies runtime libraries; compiling the attention kernels also requires the
+separately installed CUDA toolkit and compiler. `--libero` adds the LIBERO runtime libraries. Simulator source,
+assets and RoboTwin's extra simulator packages are prepared below, using the same activated `.venv`.
+
+## Pinned versions
 
 | Library | Version | Used by |
 |---|---:|---|
@@ -9,14 +51,6 @@ Use Linux and Python 3.10. The recorded policy runtime used PyTorch 2.7.1, torch
 | diffusers | 0.34.0 | Ovis-U1 and DINOv2 (the Yak generator of Ovis-U1) |
 | flash-attn | 2.8.3.post1 | Ovis-U1 and DINOv2 (the AIMv2 vision encoder of Ovis-U1) |
 | fla-core, causal-conv1d | 0.5.1, 1.6.2.post1 | Qwen3.5-2B linear attention |
-
-```bash
-python3.10 tools/bootstrap.py --venv .venv --libero --dry-run
-python3.10 tools/bootstrap.py --venv .venv --libero
-source .venv/bin/activate
-python -m pip check
-python tools/jam.py compose libero-ovis-jam
-```
 
 `environments/requirements.txt` lists the packages that JAM needs directly, and `environments/constraints.txt` pins every installed version, including transitive dependencies. `environments/observed.json` records the installed-package versions of the validated runtime, without local paths or credentials. System libraries, drivers and GPU architecture are separate requirements. If the selected wheel index has no wheel for the host architecture, use the matching NVIDIA/PyTorch distribution and record that change; do not silently mix CUDA/PyTorch versions.
 
