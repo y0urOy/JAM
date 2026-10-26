@@ -21,15 +21,9 @@
   Future observations supervise training. No image or video generation is needed.
 </p>
 
-The vision-language-action (VLA) and world-action model (WAM) communities debate whether a policy should inherit
-pretrained knowledge from a vision-language model or from a visual generator. The debate bundles three separable choices: the
-backbone initialization, the objective applied to future observations, and whether the machinery for that objective
-is kept at inference. **Just Action Models (JAM)** decouple them: a pretrained visual backbone with an action expert,
-trained with an action loss and a foresight loss. The foresight loss trains current-observation features to predict
-frozen encodings of the recorded future through a prediction head that is discarded after training, so no visual
-generation is involved in training or inference, and the backbone can be chosen freely. JAM outperforms its matched
-FastWAM and ImageWAM counterparts on LIBERO and LIBERO-Plus, is on par or slightly better on RoboTwin 2.0, and with
-cached foresight targets uses 73% fewer estimated online training FLOPs per sample per update than FastWAM.
+**Just Action Models (JAM)** pair a pretrained visual backbone with an action expert and learn from recorded future
+observations through foresight supervision. JAM improves matched FastWAM and ImageWAM baselines on LIBERO and
+LIBERO-Plus, with no visual generation during training or inference.
 
 This repository contains the training and evaluation code for JAM on [LIBERO](https://github.com/Lifelong-Robot-Learning/LIBERO),
 [LIBERO-Plus](https://github.com/sylvestf/LIBERO-plus) and [RoboTwin 2.0](https://github.com/RoboTwin-Platform/RoboTwin),
