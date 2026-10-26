@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import copy
 import logging
 import os
 from collections import OrderedDict
@@ -17,7 +16,6 @@ from .action_dit_qwen35 import (
     ActionDiTQwen35Native,
     Qwen35ActionCondition,
     QWEN_ACTION_ATTENTION_CAUSAL,
-    QWEN_ACTION_ATTENTION_PREFIX_LM_BIDIRECTIONAL,
 )
 from .foresight_yak import ForesightProjector as JAMForesightProjector
 from .qwen35_vision_attention import enable_equal_grid_attention
@@ -37,11 +35,6 @@ QWEN_JAM_CHECKPOINT_FORMAT = "qwen35_imagewam_v3"
 QWEN_JAM_YAK_CHECKPOINT_FORMAT = "qwen35_imagewam_yak18_v1"
 QWEN_JAM_NATIVE_CHECKPOINT_FORMAT = "qwen35_imagewam_native_qwen24_v1"
 QWEN_NATIVE_COPY_INITIALIZATION = "exact_qwen35_decoder_block_copy_v1"
-QWEN_NATIVE_SHARED_INITIALIZATION = "shared_qwen35_decoder_blocks_v1"
-QWEN_NATIVE_SINGLE_STREAM_INITIALIZATION = "single_stream_qwen35_decoder_blocks_v1"
-QWEN_JAM_NATIVE_PREFIX_LM_CHECKPOINT_FORMAT = (
-    "qwen35_imagewam_native_qwen24_prefix_lm_v1"
-)
 QWEN_CHECKPOINT_FORMAT = QWEN_JAM_CHECKPOINT_FORMAT
 QWEN_PREDICTOR_JAM = "imagewam_transformer"
 QWEN_PREDICTOR_LEGACY = "residual_mlp"
@@ -49,7 +42,7 @@ QWEN_ACTION_FUSION_FINAL = "final_context"
 QWEN_ACTION_FUSION_LAYERWISE_MOT = "layerwise_mot"
 QWEN_ACTION_FUSION_YAK_LAYERWISE_MOT = "yak_layerwise_mot"
 QWEN_ACTION_FUSION_NATIVE_QWEN = "qwen_native_mot"
-QWEN_TEACHER_MODES = frozenset({"frozen_pretrained", "frozen_random"})
+QWEN_TEACHER_MODES = frozenset({"frozen_pretrained"})
 
 
 def _uniform_block_indices(depth: int, count: int) -> tuple[int, ...]:
@@ -126,36 +119,6 @@ def normalize_qwen_teacher_mode(value: Any) -> str:
             f"{sorted(QWEN_TEACHER_MODES)}."
         )
     return mode
-
-
-def build_random_qwen_backbone(
-    conditional_generation_cls,
-    config,
-    *,
-    seed: int,
-    torch_dtype: torch.dtype,
-    attn_implementation: Optional[str],
-) -> nn.Module:
-    """Construct a deterministic native-random Qwen backbone on CPU.
-
-    The RNG fork prevents teacher construction from changing initialization of
-    the trainable action/projector modules or the later data/optimization RNG.
-    ``_from_config`` retains Transformers' attention/dtype resolution without
-    reading any pretrained weight shard.
-    """
-
-    build_kwargs: dict[str, Any] = {"dtype": torch_dtype}
-    if attn_implementation is not None:
-        build_kwargs["attn_implementation"] = str(attn_implementation)
-    with torch.random.fork_rng(devices=[]):
-        torch.manual_seed(int(seed))
-        random_full = conditional_generation_cls._from_config(
-            copy.deepcopy(config),
-            **build_kwargs,
-        )
-    random_backbone = random_full.model
-    del random_full
-    return random_backbone
 
 
 def resolve_teacher_frame_layout(
@@ -840,7 +803,7 @@ class JAMQwen35(nn.Module):
         )
         if self.action_fusion_type == QWEN_ACTION_FUSION_NATIVE_QWEN:
             # ``parameters()`` deduplicates shared tensors, so these are the
-            # true trainable sizes of the shared-weight and MoT variants.
+            # true trainable sizes of the policy Qwen and its action expert.
             qwen_params = sum(p.numel() for p in self.dit["qwen"].parameters())
             expert_ids = {id(p) for p in self.dit["qwen"].parameters()}
             expert_own = sum(
@@ -850,21 +813,14 @@ class JAMQwen35(nn.Module):
             )
             total_trainable = sum(p.numel() for p in self.dit.parameters())
             logger.info(
-                "JAMQwen35 native action: shares_backbone_weights=%s "
-                "single_stream=%s qwen_params=%d action_expert_own_params=%d "
+                "JAMQwen35 native action: qwen_params=%d action_expert_own_params=%d "
                 "dit_unique_params=%d",
-                bool(getattr(self.action_expert, "shares_backbone_weights", False)),
-                bool(getattr(self.action_expert, "single_stream", False)),
                 qwen_params,
                 expert_own,
                 total_trainable,
             )
 
     def _native_initialization_tag(self) -> str:
-        if getattr(self.action_expert, "single_stream", False):
-            return QWEN_NATIVE_SINGLE_STREAM_INITIALIZATION
-        if getattr(self.action_expert, "shares_backbone_weights", False):
-            return QWEN_NATIVE_SHARED_INITIALIZATION
         return QWEN_NATIVE_COPY_INITIALIZATION
 
     @property
@@ -967,11 +923,11 @@ class JAMQwen35(nn.Module):
         torch_dtype: torch.dtype = torch.bfloat16,
     ) -> "JAMQwen35":
         try:
-            from transformers import AutoConfig, AutoProcessor, Qwen3_5ForConditionalGeneration
+            from transformers import AutoProcessor, Qwen3_5ForConditionalGeneration
         except (ImportError, AttributeError) as exc:
             raise ImportError(
                 "JAMQwen35 requires Transformers with Qwen3.5 support. "
-                "Install environments/qwen.txt (Transformers 5) and use that environment."
+                "Install the environment of tools/bootstrap.py (Transformers 5.13.1) and use it."
             ) from exc
 
         foresight_cfg = dict(foresight_cfg or {})
@@ -1025,33 +981,18 @@ class JAMQwen35(nn.Module):
         load_teacher = bool(foresight_cfg.get("enabled", True)) and bool(
             foresight_cfg.get("load_teacher", True)
         )
-        teacher_mode = normalize_qwen_teacher_mode(
+        # Validate the teacher mode before loading any teacher weights.
+        normalize_qwen_teacher_mode(
             foresight_cfg.get("teacher_mode", "frozen_pretrained")
         )
-        teacher_random_seed = int(foresight_cfg.get("teacher_random_seed", 42))
         if load_teacher:
-            if teacher_mode == "frozen_pretrained":
-                logger.info("Loading frozen pretrained Qwen3.5 teacher from %s", teacher_model_id)
-                teacher_full = Qwen3_5ForConditionalGeneration.from_pretrained(
-                    teacher_model_id,
-                    **qwen_load_kwargs,
-                )
-                teacher_backbone = teacher_full.model
-                del teacher_full
-            else:
-                logger.info(
-                    "Building frozen random Qwen3.5 teacher from config=%s seed=%d",
-                    teacher_model_id,
-                    teacher_random_seed,
-                )
-                teacher_config = AutoConfig.from_pretrained(teacher_model_id)
-                teacher_backbone = build_random_qwen_backbone(
-                    Qwen3_5ForConditionalGeneration,
-                    teacher_config,
-                    seed=teacher_random_seed,
-                    torch_dtype=torch_dtype,
-                    attn_implementation=qwen_attn_implementation,
-                )
+            logger.info("Loading frozen pretrained Qwen3.5 teacher from %s", teacher_model_id)
+            teacher_full = Qwen3_5ForConditionalGeneration.from_pretrained(
+                teacher_model_id,
+                **qwen_load_kwargs,
+            )
+            teacher_backbone = teacher_full.model
+            del teacher_full
             teacher_backbone.config.text_config.use_cache = False
             teacher_backbone.eval()
             teacher_backbone.requires_grad_(False)
@@ -1678,26 +1619,16 @@ class JAMQwen35(nn.Module):
             if position_ids is None:
                 raise RuntimeError("Qwen native action could not compute multimodal position IDs.")
             model_inputs["position_ids"] = position_ids
-            if getattr(self.action_expert, "single_stream", False):
-                # Literal single-pass model: action block i sees the same
-                # prefix states as the policy's own block i, i.e. its input.
-                output, foresight_hidden, decoder_outputs = forward_with_decoder_layer_capture(
-                    self.student_backbone,
-                    layer=self.foresight_layer,
-                    model_inputs=model_inputs,
-                    return_decoder_inputs=True,
-                )
-            else:
-                output, foresight_hidden, decoder_outputs = forward_with_decoder_layer_capture(
-                    self.student_backbone,
-                    layer=self.foresight_layer,
-                    model_inputs=model_inputs,
-                    return_decoder_outputs=True,
-                )
-                # The final policy prefix uses Qwen's final RMSNorm so every source
-                # Qwen parameter participates in action training, just as it does
-                # in the ordinary final-context policy.
-                decoder_outputs = (*decoder_outputs[:-1], output.last_hidden_state)
+            output, foresight_hidden, decoder_outputs = forward_with_decoder_layer_capture(
+                self.student_backbone,
+                layer=self.foresight_layer,
+                model_inputs=model_inputs,
+                return_decoder_outputs=True,
+            )
+            # The final policy prefix uses Qwen's final RMSNorm so every source
+            # Qwen parameter participates in action training, just as it does
+            # in the ordinary final-context policy.
+            decoder_outputs = (*decoder_outputs[:-1], output.last_hidden_state)
             native_action_inputs = {
                 "layerwise_prefix_tokens": decoder_outputs,
                 "prefix_attention_mask": model_inputs["attention_mask"].to(
@@ -2188,32 +2119,6 @@ class JAMQwen35(nn.Module):
         batch_size = video.shape[0]
         prompts = self._normalize_prompts(sample["prompt"], batch_size)
 
-        # Short profiling runs can request a CUDA-event breakdown without adding
-        # synchronizations to normal training.  This distinguishes immutable
-        # preprocessing, trainable student, action expert, frozen teacher and
-        # projector costs.
-        profile_limit = int(os.environ.get("JAM_PROFILE_QWEN_TRAIN_CALLS", "0"))
-        profile_call = int(getattr(self, "_qwen_train_profile_calls", 0))
-        profile_enabled = bool(
-            profile_limit > profile_call
-            and video.device.type == "cuda"
-            and torch.cuda.is_available()
-        )
-        profile_events: dict[str, list[torch.cuda.Event]] = {}
-
-        def profile_start(name: str) -> None:
-            if profile_enabled:
-                event = torch.cuda.Event(enable_timing=True)
-                event.record()
-                profile_events[name] = [event]
-
-        def profile_end(name: str) -> None:
-            if profile_enabled:
-                event = torch.cuda.Event(enable_timing=True)
-                event.record()
-                profile_events[name].append(event)
-
-        profile_start("preprocess")
         current_frame = video[:, :, 0]
         current_views = self._split_views(current_frame)
         teacher_views = None
@@ -2271,13 +2176,11 @@ class JAMQwen35(nn.Module):
                     student_grid_thw,
                 )
             if self.teacher_first:
-                profile_start("teacher")
                 teacher_targets = self._encode_teacher_targets(
                     teacher_views,
                     prompts,
                     prepared_pixels=teacher_prepared_pixels,
                 )
-                profile_end("teacher")
                 # Do not retain the full six-view packed input while building
                 # the trainable student/action graph.  The cloned three-view
                 # student rows and compact target tokens remain live.
@@ -2285,8 +2188,6 @@ class JAMQwen35(nn.Module):
                 teacher_prepared_pixels = None
                 if self.tensor_native_preprocessing:
                     del teacher_pixel_values, teacher_grid_thw
-        profile_end("preprocess")
-        profile_start("student")
         (
             context,
             context_mask,
@@ -2305,7 +2206,6 @@ class JAMQwen35(nn.Module):
             sample.get("proprio"),
             layerwise_text_tokens,
         )
-        profile_end("student")
 
         action = sample["action"].to(
             device=self.device, dtype=self.torch_dtype, non_blocking=True
@@ -2313,7 +2213,6 @@ class JAMQwen35(nn.Module):
         action_is_pad = sample.get("action_is_pad")
         if action_is_pad is not None:
             action_is_pad = action_is_pad.to(device=self.device, dtype=torch.bool, non_blocking=True)
-        profile_start("action")
         loss_action = self._compute_action_loss(
             action=action,
             action_is_pad=action_is_pad,
@@ -2323,20 +2222,17 @@ class JAMQwen35(nn.Module):
             layerwise_text_tokens=layerwise_text_tokens,
             native_action_inputs=native_action_inputs,
         )
-        profile_end("action")
 
         loss_foresight = loss_action.new_zeros(())
         if self.foresight_enabled:
             if teacher_targets is None:
                 if teacher_views is None:
                     raise RuntimeError("Foresight teacher views were not prepared.")
-                profile_start("teacher")
                 teacher_targets = self._encode_teacher_targets(
                     teacher_views,
                     prompts,
                     prepared_pixels=teacher_prepared_pixels,
                 )
-                profile_end("teacher")
             target_frame_positions = tuple(
                 teacher_frame_positions[group_idx]
                 for group_idx in self.teacher_target_group_indices
@@ -2347,28 +2243,10 @@ class JAMQwen35(nn.Module):
                 batch_size=batch_size,
                 device=self.device,
             ).to(device=self.device)
-            profile_start("foresight")
             loss_foresight = self._compute_foresight_loss(
                 student_visual=student_visual,
                 teacher_targets=teacher_targets,
                 target_valid=target_valid,
-            )
-            profile_end("foresight")
-
-        if profile_enabled:
-            last_event = next(reversed(profile_events.values()))[-1]
-            last_event.synchronize()
-            phase_ms = {
-                name: float(events[0].elapsed_time(events[1]))
-                for name, events in profile_events.items()
-            }
-            self._qwen_train_profile_calls = profile_call + 1
-            logger.info(
-                "[qwen-train-profile] rank=%s call=%d batch=%d %s",
-                os.environ.get("OMPI_COMM_WORLD_RANK", "0"),
-                profile_call + 1,
-                int(batch_size),
-                " ".join(f"{name}={value:.3f}ms" for name, value in phase_ms.items()),
             )
 
         loss_total = (
@@ -2462,13 +2340,7 @@ class JAMQwen35(nn.Module):
 
     def save_checkpoint(self, path, optimizer=None, step=None):
         if self.action_fusion_type == QWEN_ACTION_FUSION_NATIVE_QWEN:
-            if (
-                self.action_expert.action_attention_mode
-                == QWEN_ACTION_ATTENTION_PREFIX_LM_BIDIRECTIONAL
-            ):
-                checkpoint_format = QWEN_JAM_NATIVE_PREFIX_LM_CHECKPOINT_FORMAT
-            else:
-                checkpoint_format = QWEN_JAM_NATIVE_CHECKPOINT_FORMAT
+            checkpoint_format = QWEN_JAM_NATIVE_CHECKPOINT_FORMAT
         elif self.action_fusion_type == QWEN_ACTION_FUSION_YAK_LAYERWISE_MOT:
             checkpoint_format = QWEN_JAM_YAK_CHECKPOINT_FORMAT
         else:
@@ -2498,15 +2370,14 @@ class JAMQwen35(nn.Module):
             "action_expert_family": type(self.action_expert).__name__,
         }
         if self.action_fusion_type == QWEN_ACTION_FUSION_NATIVE_QWEN:
-            shares_backbone = bool(
-                getattr(self.action_expert, "shares_backbone_weights", False)
-            )
-            single_stream = bool(getattr(self.action_expert, "single_stream", False))
             payload.update(
                 {
                     "action_initialization": self._native_initialization_tag(),
-                    "action_shares_backbone_weights": shares_backbone,
-                    "action_single_stream": single_stream,
+                    # Retained so the native checkpoint payload keeps its
+                    # established key set: the action expert owns block copies
+                    # and is a separate MoT stream.
+                    "action_shares_backbone_weights": False,
+                    "action_single_stream": False,
                     "action_layer_types": tuple(self.action_expert.layer_types),
                     "action_hidden_dim": int(self.action_expert.hidden_dim),
                     "action_attention_mode": self.action_expert.action_attention_mode,
@@ -2529,7 +2400,6 @@ class JAMQwen35(nn.Module):
             QWEN_JAM_CHECKPOINT_FORMAT,
             QWEN_JAM_YAK_CHECKPOINT_FORMAT,
             QWEN_JAM_NATIVE_CHECKPOINT_FORMAT,
-            QWEN_JAM_NATIVE_PREFIX_LM_CHECKPOINT_FORMAT,
         }:
             raise ValueError(
                 f"Unsupported JAMQwen35 checkpoint format in {path}: {payload.get('format')!r}."
@@ -2584,12 +2454,7 @@ class JAMQwen35(nn.Module):
                 f"checkpoint={saved_layer_map}, model={self.action_visual_layer_map}."
             )
         if self.action_fusion_type == QWEN_ACTION_FUSION_NATIVE_QWEN:
-            expected_native_format = (
-                QWEN_JAM_NATIVE_PREFIX_LM_CHECKPOINT_FORMAT
-                if self.action_expert.action_attention_mode
-                == QWEN_ACTION_ATTENTION_PREFIX_LM_BIDIRECTIONAL
-                else QWEN_JAM_NATIVE_CHECKPOINT_FORMAT
-            )
+            expected_native_format = QWEN_JAM_NATIVE_CHECKPOINT_FORMAT
             if checkpoint_format != expected_native_format:
                 raise ValueError(
                     "Native Qwen action checkpoint format/mask mismatch: "
@@ -2601,9 +2466,7 @@ class JAMQwen35(nn.Module):
                 raise ValueError(
                     "Native Qwen action initialization metadata mismatch: "
                     f"checkpoint={saved_initialization!r}, "
-                    f"model={expected_initialization!r}. A shared-weight "
-                    "checkpoint needs model.action_dit_config."
-                    "share_backbone_weights=true and vice versa."
+                    f"model={expected_initialization!r}."
                 )
             saved_layer_types = tuple(payload.get("action_layer_types", ()))
             if saved_layer_types != tuple(self.action_expert.layer_types):
@@ -2663,14 +2526,6 @@ class JAMQwen35(nn.Module):
                 "Qwen teacher mode mismatch while loading: "
                 f"checkpoint={saved_teacher_mode!r}, model={self.foresight_teacher_mode!r}."
             )
-        if saved_teacher_mode == "frozen_random":
-            saved_teacher_seed = int(payload.get("teacher_random_seed", 42))
-            if saved_teacher_seed != self.foresight_teacher_random_seed:
-                raise ValueError(
-                    "Qwen random-teacher seed mismatch while loading: "
-                    f"checkpoint={saved_teacher_seed}, "
-                    f"model={self.foresight_teacher_random_seed}."
-                )
         self.dit.load_state_dict(payload["dit"], strict=True)
         if optimizer is not None and "optimizer" in payload:
             optimizer.load_state_dict(payload["optimizer"])
@@ -2692,12 +2547,10 @@ __all__ = [
     "QWEN_IMAGEWAM_LEGACY_CHECKPOINT_FORMAT",
     "QWEN_IMAGEWAM_YAK_CHECKPOINT_FORMAT",
     "QWEN_IMAGEWAM_NATIVE_CHECKPOINT_FORMAT",
-    "QWEN_IMAGEWAM_NATIVE_PREFIX_LM_CHECKPOINT_FORMAT",
     "QWEN_PREDICTOR_IMAGEWAM",
     "QWEN_PREDICTOR_LEGACY",
     "QWEN_TEACHER_MODES",
     "JAMQwen35",
-    "build_random_qwen_backbone",
     "extract_grouped_visual_tokens",
     "forward_with_decoder_layer_capture",
     "future_target_valid_mask",
@@ -2719,7 +2572,6 @@ QWEN_IMAGEWAM_LEGACY_CHECKPOINT_FORMAT = QWEN_JAM_LEGACY_CHECKPOINT_FORMAT
 QWEN_IMAGEWAM_CHECKPOINT_FORMAT = QWEN_JAM_CHECKPOINT_FORMAT
 QWEN_IMAGEWAM_YAK_CHECKPOINT_FORMAT = QWEN_JAM_YAK_CHECKPOINT_FORMAT
 QWEN_IMAGEWAM_NATIVE_CHECKPOINT_FORMAT = QWEN_JAM_NATIVE_CHECKPOINT_FORMAT
-QWEN_IMAGEWAM_NATIVE_PREFIX_LM_CHECKPOINT_FORMAT = QWEN_JAM_NATIVE_PREFIX_LM_CHECKPOINT_FORMAT
 QWEN_PREDICTOR_IMAGEWAM = QWEN_PREDICTOR_JAM
 
-__all__ = list(dict.fromkeys(__all__ + ['JAMQwen35', 'QWEN_FASTWAM_CHECKPOINT_FORMAT', 'QWEN_FASTWAM_LEGACY_CHECKPOINT_FORMAT', 'QWEN_IMAGEWAM_CHECKPOINT_FORMAT', 'QWEN_IMAGEWAM_LEGACY_CHECKPOINT_FORMAT', 'QWEN_IMAGEWAM_NATIVE_CHECKPOINT_FORMAT', 'QWEN_IMAGEWAM_NATIVE_PREFIX_LM_CHECKPOINT_FORMAT', 'QWEN_IMAGEWAM_YAK_CHECKPOINT_FORMAT', 'QWEN_JAM_CHECKPOINT_FORMAT', 'QWEN_JAM_LEGACY_CHECKPOINT_FORMAT', 'QWEN_JAM_NATIVE_CHECKPOINT_FORMAT', 'QWEN_JAM_NATIVE_PREFIX_LM_CHECKPOINT_FORMAT', 'QWEN_JAM_YAK_CHECKPOINT_FORMAT', 'QWEN_PREDICTOR_IMAGEWAM', 'QWEN_PREDICTOR_JAM', 'QWEN_WAN_CHECKPOINT_FORMAT', 'QWEN_WAN_LEGACY_CHECKPOINT_FORMAT', 'QwenImageWAM']))
+__all__ = list(dict.fromkeys(__all__ + ['JAMQwen35', 'QWEN_FASTWAM_CHECKPOINT_FORMAT', 'QWEN_FASTWAM_LEGACY_CHECKPOINT_FORMAT', 'QWEN_IMAGEWAM_CHECKPOINT_FORMAT', 'QWEN_IMAGEWAM_LEGACY_CHECKPOINT_FORMAT', 'QWEN_IMAGEWAM_NATIVE_CHECKPOINT_FORMAT', 'QWEN_IMAGEWAM_YAK_CHECKPOINT_FORMAT', 'QWEN_JAM_CHECKPOINT_FORMAT', 'QWEN_JAM_LEGACY_CHECKPOINT_FORMAT', 'QWEN_JAM_NATIVE_CHECKPOINT_FORMAT', 'QWEN_JAM_YAK_CHECKPOINT_FORMAT', 'QWEN_PREDICTOR_IMAGEWAM', 'QWEN_PREDICTOR_JAM', 'QWEN_WAN_CHECKPOINT_FORMAT', 'QWEN_WAN_LEGACY_CHECKPOINT_FORMAT', 'QwenImageWAM']))

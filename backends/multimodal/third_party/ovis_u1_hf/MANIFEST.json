@@ -1,6 +1,7 @@
 {
   "source_repo": "AIDC-AI/Ovis-U1-3B",
-  "source_base_url": "https://huggingface.co/AIDC-AI/Ovis-U1-3B/resolve/main",
+  "source_revision": "cbc005ddff7376a20bc98a89136d088e0f7e1623",
+  "source_base_url": "https://huggingface.co/AIDC-AI/Ovis-U1-3B/resolve/cbc005ddff7376a20bc98a89136d088e0f7e1623",
   "files": [
     "configuration_ovis_u1.py",
     "modeling_ovis_u1.py",
@@ -14,7 +15,7 @@
     "special_tokens_map.json",
     "added_tokens.json",
     "vocab.json",
-    "merges.txt"
+    "Notice"
   ],
-  "note": "Code/config/tokenizer files only; safetensors weights intentionally omitted."
+  "note": "Modeling code, configuration and tokenizer metadata; see README.vendor.md."
 }

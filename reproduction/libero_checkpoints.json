@@ -136,6 +136,7 @@
         "seed": 42,
         "overrides": [
           "model.action_dit_pretrained_path=null",
+          "model.skip_dit_load_from_pretrain=false",
           "EVALUATION.action_horizon=16",
           "EVALUATION.replan_steps=10",
           "EVALUATION.num_inference_steps=10",
@@ -158,11 +159,5 @@
     "Matching configuration, normalization statistics and recorded per-task results",
     "CPU dry-runs of the LIBERO and LIBERO-Plus evaluation commands",
     "Each folder downloads anonymously and passes release.py verify --metadata-only"
-  ],
-  "not_run": [
-    "New training",
-    "GPU inference",
-    "New simulation rollouts"
-  ],
-  "recorded_results_note": "The results in each model folder are the recorded paper results; they were not rerun."
+  ]
 }

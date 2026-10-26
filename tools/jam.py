@@ -41,6 +41,11 @@ def paths(args):
     }
 
 
+def libero_config_dir(benchmark, root=None):
+    # Written by tools/setup_simulators.py; LIBERO and LIBERO-Plus each read their own checkout.
+    return (root or ROOT) / 'third_party' / ('.libero_plus' if benchmark == 'plus' else '.libero')
+
+
 def environment(backend, benchmark, p):
     backend = canonical_backend(backend)
     env = adopt_legacy_environment(os.environ.copy(), backend)
@@ -54,6 +59,11 @@ def environment(backend, benchmark, p):
     env.setdefault('JAM_VIDEO_BACKEND', 'pyav')
     env.setdefault('MUJOCO_GL', 'egl')
     env.setdefault('PYOPENGL_PLATFORM', 'egl')
+    env.setdefault('DIFFSYNTH_SKIP_DOWNLOAD', 'true')  # use the pinned downloads only
+    env.setdefault('JAM_FAIL_ON_NONFINITE_LOSS', '1')
+    env.setdefault('JAM_ASYNC_NONFINITE_CHECK', '1')
+    if benchmark in ('libero', 'plus'):
+        env['LIBERO_CONFIG_PATH'] = str(libero_config_dir(benchmark))
     env['DIFFSYNTH_MODEL_BASE_PATH'] = str(p['models'])
     # Both readers cache normalization and other run-local files here.
     return env
@@ -89,13 +99,12 @@ def base_overrides(r, p, training=True):
                 assignment('model.action_dit_pretrained_path', str(p['models'] / f'init/ovis_action_{dim}d.pt')),
                 assignment('data.train.qwen_text_cache_dir', None)]
     elif r['family'] == 'qwen':
-        size = r.get('qwen_size', '2B')
-        out += [assignment('model.model_id', str(p['models'] / f'Qwen3.5-{size}-Base')),
-                assignment('model.teacher_model_id', str(p['models'] / f'Qwen3.5-{size}-Base')),
+        out += [assignment('model.model_id', str(p['models'] / 'Qwen3.5-2B-Base')),
+                assignment('model.teacher_model_id', str(p['models'] / 'Qwen3.5-2B-Base')),
                 assignment('data.train.qwen_text_cache_dir', None)]
     elif r['family'] == 'dino':
         text = str(p['cache'] / r['benchmark'] / 'qwen3_4b_len512')
-        out += [assignment('model.ovis_u1_model_path', str(ROOT / 'backends/multimodal/third_party/ovis_u1_hf')),
+        out += [assignment('model.ovis_u1_model_path', str(p['models'] / 'Ovis-U1-3B')),  # the Ovis-U1 container the DINO stream plugs into
                 assignment('model.ssl_vision.model_id', str(p['models'] / ('dinov2-' + r['dino_size']))),
                 assignment('model.ssl_vision.qwen_text_cache_dir', text),
                 assignment('data.train.qwen_text_cache_dir', text),
@@ -110,14 +119,18 @@ def base_overrides(r, p, training=True):
                 assignment('data.train.qwen_text_cache_dir', text),
                 assignment('data.train.qwen_context_len', 512),assignment('model.qwen_context_len', 512)]
         if r['benchmark'] == 'robotwin':
-            # Preserve the actual released RoboTwin configuration's 128-token
-            # cache. LIBERO and DINO use 512. This distinction is documented.
+            # RoboTwin FLUX.2 trains on the 128-token cache of the released ImageWAM
+            # RoboTwin configuration; LIBERO FLUX.2 and DINOv2 use 512 (docs/DATA_AND_MODELS.md).
             out += [assignment('data.train.qwen_context_len', 128),assignment('model.qwen_context_len', 128),
                     assignment('data.train.qwen_text_cache_dir', str(p['cache'] / 'robotwin/qwen3_4b_len128'))]
     if training:
         out += [assignment('max_steps', r['steps']),assignment('num_epochs', r['epochs']),
                 assignment('seed', r['seed']),assignment('eval_every', 0),
                 assignment('persistent_workers', False),assignment('dataloader_multiprocessing_context', 'spawn')]
+        if r['benchmark'] == 'robotwin' and r['backend'] == 'multimodal':
+            # Windows, action chunks and foresight endpoints follow the non-idle timeline
+            # (docs/DATA_AND_MODELS.md); the Wan recipe trains on every frame.
+            out += [assignment('data.train.nonidle_filter_path', data_directories(r, p)[0] + '/nonidle_ranges.json')]
     out += r['overrides']
     return out
 
@@ -182,17 +195,12 @@ def command_plan(args):
             raise ValueError('Ovis encodes its own condition; no UMT5/Qwen cache is needed.')
         commands.append([args.python, script] + ov + args.override)
     elif mode == 'cache':
-        if r['backend'] != 'wan' or 'foresight' not in r['task'] and 'bplus' not in r['task'] and 'vae' not in r['task']:
+        if r['backend'] != 'wan':
             raise ValueError('This target-cache entrypoint supports the Wan foresight recipes. Other families train with online frozen anchors.')
         target = str(p['cache'] / args.recipe / 'targets')
         commands.append([args.python,'scripts/extract_foresight_cache.py'] + ov + [
             assignment('output_dir', str(out)),assignment('extract.out_roots',[target]),
             assignment('extract.batch_size', args.micro_batch),assignment('extract.num_workers',args.workers)] + args.override)
-    elif mode == 'profile':
-        if r['backend'] != 'wan':
-            raise ValueError('Use tools/profile_ovis.py for the Ovis timing rows; see docs/ANALYSES.md.')
-        commands.append([args.python,'scripts/profile_step_breakdown.py'] + ov + [
-            assignment('batch_size', args.micro_batch),assignment('output_dir',str(out))] + args.override)
     elif mode == 'eval':
         args.gpus = ','.join(gpu_ids(args.gpus))
         reject_overrides(args.override, MANAGED_EVAL_KEYS)
@@ -202,6 +210,8 @@ def command_plan(args):
         expected = 'robotwin' if benchmark == 'robotwin' else 'libero'
         if r['benchmark'] != expected:
             raise ValueError('Use a matching training recipe; do not silently evaluate a different embodiment.')
+        if benchmark == 'robotwin' and getattr(args, 'resume', False):
+            raise ValueError('--resume applies to LIBERO and LIBERO-Plus evaluations.')
         if benchmark == 'robotwin':
             ov += [assignment('ckpt',str(Path(args.checkpoint).expanduser().resolve())),
                    assignment('EVALUATION.dataset_stats_path',str(Path(args.stats).expanduser().resolve())),
@@ -211,6 +221,13 @@ def command_plan(args):
                    assignment('EVALUATION.eval_num_episodes',100),assignment('EVALUATION.replan_steps',24),
                    assignment('MULTIRUN.enabled',True),assignment('MULTIRUN.num_gpus',len(args.gpus.split(','))),
                    assignment('MULTIRUN.max_tasks_per_gpu',1),assignment('MULTIRUN.phases',['clean','random'])]
+            ov += [assignment('model.action_dit_pretrained_path',None)]  # the checkpoint holds the action expert
+            if r['family'] == 'qwen':  # the native Qwen action expert is built from the source Qwen weights
+                ov += [assignment('model.skip_dit_load_from_pretrain',False),assignment('model.foresight.load_teacher',False)]
+            if r['family'] == 'flux':  # online instruction encoding with the pinned Qwen3-4B, as in the recorded evaluation
+                ov += [assignment('model.qwen_context_len',512),assignment('model.qwen3_model_spec',str(p['models'] / 'Qwen3-4B'))]
+            if r['backend'] == 'multimodal':
+                env['JAM_FORESIGHT_NO_TEACHER'] = '1'  # inference never runs the frozen future anchor
             commands.append([args.python,'experiments/robotwin/run_robotwin_manager.py','--config-name','sim_robotwin'] + ov + args.override)
             env['CUDA_VISIBLE_DEVICES'] = args.gpus
         else:
@@ -218,20 +235,22 @@ def command_plan(args):
                 '--recipe',args.recipe,'--benchmark',benchmark,'--checkpoint',args.checkpoint,
                 '--stats',args.stats,'--gpus',args.gpus,'--output',str(out),
                 '--data-root',str(p['data']),'--model-root',str(p['models']),'--cache-root',str(p['cache'])]
-                + sum([['--override',x] for x in args.override],[]))
+                + sum([['--override',x] for x in args.override],[]) + (['--resume'] if getattr(args,'resume',False) else []))
     elif mode == 'compose':
         commands.append([args.python,str(ROOT/'tools/compose.py'),'--recipe',args.recipe,
                          '--data-root',str(p['data']),'--model-root',str(p['models']),
                          '--cache-root',str(p['cache'])] + sum([['--override',x] for x in args.override],[]))
     else:
         raise ValueError(mode)
-    plan = {'recipe':args.recipe,'environment':r['environment'],'mode':mode,'cwd':str(repo),
+    plan = {'recipe':args.recipe,'mode':mode,'cwd':str(repo),
             'output':str(out),'commands':commands,'env':{k:env[k] for k in [
                 'PYTHONPATH','WANDB_MODE','JAM_VIDEO_BACKEND','MUJOCO_GL','DIFFSYNTH_MODEL_BASE_PATH',
-                'PYOPENGL_PLATFORM','CUDA_VISIBLE_DEVICES'] if k in env},
+                'PYOPENGL_PLATFORM','CUDA_VISIBLE_DEVICES','LIBERO_CONFIG_PATH','DIFFSYNTH_SKIP_DOWNLOAD','JAM_FAIL_ON_NONFINITE_LOSS',
+                'JAM_ASYNC_NONFINITE_CHECK','JAM_FORESIGHT_NO_TEACHER'] if k in env},
             'global_batch':r['global_batch'],'scientific_overrides':ov}
     if mode == 'eval':
-        plan.update(benchmark=args.benchmark, checkpoint=args.checkpoint, stats=args.stats)
+        plan.update(benchmark=args.benchmark, checkpoint=args.checkpoint, stats=args.stats,
+                    resume=bool(getattr(args, 'resume', False)))
     return plan, env
 
 
@@ -266,7 +285,7 @@ def pipeline_plan(args):
         evaluation.override = args.override + args.eval_override
         evaluation_plan, _ = command_plan(evaluation)
         stages.append(evaluation_plan)
-    return {'mode':'train-eval', 'recipe':args.recipe, 'environment':recipe['environment'],
+    return {'mode':'train-eval', 'recipe':args.recipe,
             'output':train['output'], 'stages':stages,
             'evaluation_node_rank':0, 'expected_checkpoint':str(checkpoint)}, env
 
@@ -297,7 +316,7 @@ def execute_plan(plan, env):
 
 def preflight_evaluation(plan, require_checkpoint=True):
     output = Path(plan['output'])
-    if output.exists() and any(output.iterdir()):
+    if output.exists() and any(output.iterdir()) and not plan.get('resume'):
         raise ValueError(f'{output} is not empty. Use a new --output for a new evaluation.')
     if require_checkpoint:
         for key in ('checkpoint', 'stats'):
@@ -306,19 +325,28 @@ def preflight_evaluation(plan, require_checkpoint=True):
                 raise ValueError(f'Missing or empty evaluation {key}: {path}')
     if plan['benchmark'] in ('libero', 'plus'):
         simulator = ROOT / 'third_party' / ('LIBERO-plus' if plan['benchmark'] == 'plus' else 'LIBERO')
-        if not simulator.is_dir():
-            raise ValueError(f'Missing simulator {simulator}; see docs/INSTALL.md. No evaluation was started.')
+        if not (simulator / 'libero/libero/assets').is_dir() or not (libero_config_dir(plan['benchmark']) / 'config.yaml').is_file():
+            raise ValueError(f'Prepare {simulator} with tools/setup_simulators.py; see docs/INSTALL.md. No evaluation was started.')
+    else:
+        if not (ROOT / 'third_party/RoboTwin/assets/embodiments').is_dir():
+            raise ValueError('Prepare RoboTwin with tools/setup_simulators.py robotwin; see docs/INSTALL.md. No evaluation was started.')
+        python = plan['commands'][0][0]
+        found = subprocess.run([python, '-c', 'import importlib.metadata as m; print(m.version("sapien"))'],
+                               capture_output=True, text=True).stdout.strip()
+        if found != '3.0.0b1' and os.environ.get('JAM_ALLOW_SAPIEN_VERSION') != found:
+            raise ValueError(f'RoboTwin evaluation expects SAPIEN 3.0.0b1 in {python}, found {found or "none"}; '
+                             'see docs/INSTALL.md. No evaluation was started.')
 
 
 def parser():
     ap = argparse.ArgumentParser(description=__doc__)
     sub = ap.add_subparsers(dest='command', required=True)
-    listing = sub.add_parser('list', help='List named training/ablation recipes.')
+    listing = sub.add_parser('list', help='List the named training recipes.')
     listing.add_argument('--backend', type=canonical_backend, choices=['wan', 'multimodal'])
     summary = sub.add_parser('summarize', help='Validate and aggregate LIBERO/Plus task results.')
     summary.add_argument('--benchmark', choices=['libero', 'plus'], required=True)
     summary.add_argument('--output', required=True, help='Evaluation directory containing per-task results.')
-    for mode in ('train','train-eval','cache','text-cache','profile','eval','compose'):
+    for mode in ('train','train-eval','cache','text-cache','eval','compose'):
         p = sub.add_parser(mode)
         p.add_argument('recipe', nargs='?' if mode == 'eval' else None)
         runtime = p.add_mutually_exclusive_group()
@@ -341,6 +369,7 @@ def parser():
             p.add_argument('--run-dir', help='Restore recipe, overrides, latest checkpoint and matching statistics.')
             p.add_argument('--checkpoint');p.add_argument('--stats')
             p.add_argument('--gpus',default='0')
+            p.add_argument('--resume',action='store_true',help='Finish an interrupted LIBERO/LIBERO-Plus evaluation in the same --output.')
         if mode == 'train-eval':
             p.add_argument('--benchmarks', nargs='+', choices=['libero','plus','robotwin'])
             p.add_argument('--eval-override', action='append', default=[])
@@ -353,7 +382,7 @@ def main():
     if args.command == 'list':
         for name,r in recipes().items():
             if not args.backend or args.backend == r['backend']:
-                print(f'{name:38s} {r["backend"]:8s} env={r["environment"]:5s} {r["benchmark"]:8s} steps={r["steps"]} global_batch={r["global_batch"]}')
+                print(f'{name:38s} {r["backend"]:8s} {r["benchmark"]:8s} steps={r["steps"]} global_batch={r["global_batch"]}')
         return
     if args.command == 'summarize':
         from summarize_results import summarize, save_summary

@@ -50,7 +50,6 @@ class RobotVideoDataset(torch.utils.data.Dataset):
         video_future_frames: int = 0,    # extend the VIDEO window this many extra frames on the latent grid
                                          # (multiple of 4 obs steps each) for foresight teacher targets;
                                          # action horizon and proprio/state windows UNCHANGED. Online only.
-        ssl_clip_indices: Optional[list[int]] = None,
         use_input_latent_cache: bool = False,
     ):
         self.video_future_frames = int(video_future_frames)
@@ -58,47 +57,11 @@ class RobotVideoDataset(torch.utils.data.Dataset):
         assert not (first_frame_only and self.video_future_frames > 0),\
             "first_frame_only and video_future_frames are mutually exclusive"
         image_future_steps = self.video_future_frames * action_video_freq_ratio
-        self.ssl_clip_indices = (
-            None
-            if ssl_clip_indices is None
-            else [int(index) for index in ssl_clip_indices]
-        )
-        if self.ssl_clip_indices is not None:
-            if first_frame_only:
-                raise ValueError("`ssl_clip_indices` and `first_frame_only` are mutually exclusive.")
-            if not self.ssl_clip_indices:
-                raise ValueError("`ssl_clip_indices` must not be empty.")
-            max_image_index = num_frames + image_future_steps - 1
-            if (
-                min(self.ssl_clip_indices) < 0
-                or max(self.ssl_clip_indices) > max_image_index
-            ):
-                raise ValueError(
-                    "`ssl_clip_indices` must index the fetched image window "
-                    f"0..{max_image_index}, got {self.ssl_clip_indices}."
-                )
-            if len(set(self.ssl_clip_indices)) != len(self.ssl_clip_indices):
-                raise ValueError(
-                    f"`ssl_clip_indices` must not contain duplicates, got {self.ssl_clip_indices}."
-                )
-            decoded_image_indices = sorted({0, *self.ssl_clip_indices})
-        else:
-            decoded_image_indices = None
-        self._decoded_image_indices = decoded_image_indices
-        self._decoded_position = (
-            None
-            if decoded_image_indices is None
-            else {raw_index: pos for pos, raw_index in enumerate(decoded_image_indices)}
-        )
         self.lerobot_dataset = BaseLerobotDataset(
             dataset_dirs=dataset_dirs,
             shape_meta=OmegaConf.to_container(shape_meta, resolve=True),
             obs_size=num_frames,
-            image_obs_indices=(
-                decoded_image_indices
-                if decoded_image_indices is not None
-                else ([0] if first_frame_only else None)
-            ),
+            image_obs_indices=([0] if first_frame_only else None),
             image_future_steps=image_future_steps,
             action_size=num_frames - 1,
             val_set_proportion=val_set_proportion,
@@ -202,17 +165,7 @@ class RobotVideoDataset(torch.utils.data.Dataset):
 
             sample_idx = np.random.randint(len(self.lerobot_dataset))
         
-        ssl_image_is_pad = None
-        if self.ssl_clip_indices is not None:
-            decoded_pad = sample["image_is_pad"]
-            current_position = self._decoded_position[0]
-            clip_positions = [
-                self._decoded_position[index] for index in self.ssl_clip_indices
-            ]
-            image_is_pad = decoded_pad[current_position : current_position + 1]
-            ssl_image_is_pad = decoded_pad[clip_positions]
-            pixel_indices = [current_position, *clip_positions]
-        elif self.first_frame_only:
+        if self.first_frame_only:
             # Pixels: only frame 0 was decoded. Pad METADATA must still cover every video
             # frame for foresight frame_valid; proprio shares the exact obs time grid, so
             # its pad vector is bit-identical to what the image pads would have been.
@@ -237,8 +190,7 @@ class RobotVideoDataset(torch.utils.data.Dataset):
             assert video.ndim == 4, f"Expected video to have shape [T, C, H, W], got {video.shape}"
             video = video[pixel_indices, :, :, :] # [T_video, C, H, W]
             T_video, C, H, W = video.shape
-        if self.ssl_clip_indices is None:
-            image_is_pad = image_is_pad[self.video_sample_indices]  # always the FULL video-frame grid (9), even when pixels carry 1 frame
+        image_is_pad = image_is_pad[self.video_sample_indices]  # always the FULL video-frame grid (9), even when pixels carry 1 frame
 
         if not self.use_input_latent_cache:
             video = video.view(num_cameras, T_video, C, H, W)  # [num_cameras, T_video, C, H, W]
@@ -289,12 +241,6 @@ class RobotVideoDataset(torch.utils.data.Dataset):
             video = self.normalize_transform(video)  # [T_video, C, H, W]
 
             video = video.permute(1, 0, 2, 3) # [C, T_video, H, W], range [-1, 1]
-        ssl_video = None
-        if self.ssl_clip_indices is not None:
-            # Position zero is the causal current image; the remaining frames
-            # are the ordered future clip requested by ssl_clip_indices.
-            ssl_video = video[:, 1:]
-            video = video[:, :1]
 
         # Proxy (from lerobot): 
         #   action: [num_frames-1, action_dim] # start from t0, except the last frame
@@ -302,7 +248,7 @@ class RobotVideoDataset(torch.utils.data.Dataset):
         action = sample["action"] # [T-1, action_dim]
         proprio = sample["proprio"][:-1, :] # [T-1, state_dim], to align with action
         if not self.first_frame_only:
-            if self.ssl_clip_indices is None and video.shape[1] <= 1:
+            if video.shape[1] <= 1:
                 raise ValueError(f"`video` must have at least 2 frames, got shape {tuple(video.shape)}")
             # divisibility binds action to the ACTION-window video frames; appended
             # video_future_frames (teacher-only) must not enter this check
@@ -328,9 +274,6 @@ class RobotVideoDataset(torch.utils.data.Dataset):
         }
         if video is not None:
             data["video"] = video
-        if ssl_video is not None:
-            data["ssl_video"] = ssl_video
-            data["ssl_image_is_pad"] = ssl_image_is_pad
         if self.load_text_context:
             context, context_mask = self._get_cached_text_context(instruction)
             # NOTE: to keep consistent with wan2.2's behavior

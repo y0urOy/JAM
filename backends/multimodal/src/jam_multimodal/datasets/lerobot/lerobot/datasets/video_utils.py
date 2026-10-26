@@ -49,6 +49,18 @@ def _profile_add(key: str, dt: float) -> None:
 
 
 def get_safe_default_codec():
+    override = os.environ.get("JAM_VIDEO_BACKEND") or os.environ.get("LEROBOT_VIDEO_BACKEND")
+    if override:
+        override = override.strip().lower()
+        if override not in {"auto", "default"}:
+            if override not in {"torchcodec", "pyav", "video_reader"}:
+                raise ValueError(
+                    "Unsupported video backend override "
+                    f"{override!r}. Expected one of: auto, torchcodec, pyav, video_reader."
+                )
+            logging.info("Using video backend override: %s", override)
+            return override
+
     if importlib.util.find_spec("torchcodec"):
         return "torchcodec"
     else:

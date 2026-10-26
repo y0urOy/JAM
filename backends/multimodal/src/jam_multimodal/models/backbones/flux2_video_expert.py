@@ -43,13 +43,11 @@ class Flux2VideoExpert(nn.Module):
         torch_dtype: torch.dtype = torch.bfloat16,
     ) -> "Flux2VideoExpert":
         ensure_flux2_importable(flux2_src_path)
-        from flux2.model import Flux2, Klein4BParams, Klein9BParams
+        from flux2.model import Flux2, Klein4BParams
 
         key = str(variant).lower().replace("_", "-")
         if key in {"klein-base-4b", "flux.2-klein-base-4b", "4b", "base-4b"}:
             params = Klein4BParams()
-        elif key in {"klein-base-9b", "flux.2-klein-base-9b", "9b", "base-9b"}:
-            params = Klein9BParams()
         else:
             raise ValueError(f"Unsupported FLUX.2 Klein variant: {variant!r}")
 

@@ -1,6 +1,6 @@
 # @package _global_
-# Matched future-only control for the FF3 VAE-direct ablation. It differs from
-# off012 only by dropping the current-latent target at offset 0.
+# JAM (Wan) on LIBERO: student Wan layer 18 predicts the frozen pretrained-VAE
+# latents of the next two latent frames (offsets [1,2]); no frame is generated.
 defaults:
   - override /data: libero_2cam
   - override /model: jam_wan_foresight_bplus

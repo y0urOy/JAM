@@ -1,6 +1,7 @@
 artifacts/
 .venv*/
 __pycache__/
+*.egg-info/
 *.pyc
 *.pt
 *.pth
@@ -19,3 +20,9 @@ __pycache__/
 .ruff_cache/
 third_party/LIBERO/
 third_party/LIBERO-plus/
+third_party/.libero/
+third_party/.libero_plus/
+third_party/RoboTwin/assets/
+third_party/RoboTwin/envs/curobo/
+third_party/RoboTwin/policy/jam_policy
+backends/*/*.log

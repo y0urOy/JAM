@@ -61,7 +61,7 @@ def load_tasks(cfg: DictConfig) -> list[TaskSpec]:
     if not path.exists():
         raise FileNotFoundError(
             f"LIBERO-Plus classification file not found: {path}. "
-            "Run scripts/setup_libero_plus.sh first."
+            "Run python tools/setup_simulators.py plus first."
         )
     with path.open("r", encoding="utf-8") as handle:
         payload = json.load(handle)

@@ -44,12 +44,9 @@ def worker_init_function(worker_id: int) -> None:
 
     :param worker_id: Identifier for the given worker [0, num_workers) for the Dataloader in question.
     """
-    # Apply glibc malloc tuning + a one-shot trim per worker; this is the same
-    # memory-fix path used by scripts/bench_dataloader.py. Reads
+    # Apply glibc malloc tuning + a one-shot trim per worker. Reads
     # IMAGEWAM_M_TRIM_THRESHOLD / IMAGEWAM_M_MMAP_THRESHOLD / IMAGEWAM_M_TOP_PAD /
     # IMAGEWAM_M_ARENA_MAX from the env. No-op if unset.
-    # Apply glibc malloc tuning + a one-shot trim per worker; this is the same
-    # memory-fix path used by scripts/bench_dataloader.py.
     try:
         from jam_multimodal.utils.mem_tools import apply_glibc_tuning_from_env, trim_now
         apply_glibc_tuning_from_env(verbose=False)

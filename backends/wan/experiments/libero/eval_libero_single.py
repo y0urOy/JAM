@@ -908,7 +908,7 @@ def eval_single_process(cfg: DictConfig):
     if env_num != 1:
         raise ValueError(
             "Only env_num=1 is supported in eval_libero_single.py. "
-            "Use run_libero_manager/run_libero_parallel_test.sh for multi-GPU task parallelism."
+            "Use tools/evaluate_libero.py for multi-GPU task parallelism."
         )
 
     model_device = _resolve_eval_device(cfg)
@@ -918,17 +918,14 @@ def eval_single_process(cfg: DictConfig):
     foresight_cfg = cfg.model.get("foresight", None)
     if disable_foresight and foresight_cfg is not None and bool(foresight_cfg.get("enabled", False)):
         # Keep the configured projector topology long enough for strict checkpoint
-        # loading. Frozen teachers are not checkpointed and infer_action() never
-        # calls them or the projectors. Wan uses its existing cache construction
-        # path; Qwen exposes an explicit load_teacher switch instead.
+        # loading. infer_action() never computes foresight targets or runs the
+        # projectors; the sentinel cache root marks that no target is built here.
         if "target_cache_roots" in foresight_cfg:
             if not foresight_cfg.get("target_cache_roots"):
                 cfg.model.foresight.target_cache_roots = ["__evaluation_only_no_teacher__"]
-        elif "load_teacher" in foresight_cfg:
-            cfg.model.foresight.load_teacher = False
         logging.info(
             "Foresight projector topology retained for strict checkpoint loading; "
-            "frozen teacher omitted and infer_action does not execute projectors."
+            "infer_action does not execute projectors."
         )
 
     model = instantiate(cfg.model, model_dtype=model_dtype, device=model_device)

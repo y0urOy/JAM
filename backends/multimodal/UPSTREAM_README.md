@@ -1,3 +1,5 @@
+> Upstream ImageWAM README, kept for attribution. For JAM commands, see the JAM [README](../../README.md).
+
 # ImageWAM
 
 Official codebase for **ImageWAM: Do World Action Models Really Need Video Generation, or Just Image Editing?**

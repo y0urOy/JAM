@@ -1,9 +1,7 @@
 # @package _global_
 
-# Controlled language-condition ablation against DINOv2-L + native
-# ActionDINO-L24. Visual/action/teacher/loss/data/budget stay fixed;
-# frozen Ovis multimodal condition tokens are replaced by frozen cached
-# Qwen3-4B instruction tokens.
+# JAM (DINOv2-L): DINOv2-L visual stream, native 24-layer DINO action blocks and frozen
+# cached Qwen3-4B instruction features.
 defaults:
   - override /data: libero_omnigen2_pair
   - override /model: jam_dinov2_large_qwen3_native_action_foresight

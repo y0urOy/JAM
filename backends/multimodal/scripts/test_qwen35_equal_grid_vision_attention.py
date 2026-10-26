@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import os
 import argparse
 import copy
 from types import MethodType, SimpleNamespace
@@ -11,6 +12,12 @@ import torch
 
 from jam_multimodal.models.backbones.qwen35_vision_attention import (
     _equal_grid_attention_forward,
+)
+
+
+QWEN_MODEL = os.path.join(
+    os.environ.get("JAM_MODEL_ROOT", os.path.join(os.path.dirname(__file__), "../../../artifacts/models")),
+    "Qwen3.5-2B-Base",
 )
 
 
@@ -37,7 +44,7 @@ def main() -> None:
     torch.manual_seed(3407)
     config = copy.deepcopy(
         AutoConfig.from_pretrained(
-            "checkpoints/Qwen3.5-2B-Base", local_files_only=True
+            QWEN_MODEL, local_files_only=True
         ).vision_config
     )
     config._attn_implementation = "sdpa"

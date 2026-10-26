@@ -38,8 +38,8 @@ lr_schedule_steps: null # cosine horizon; null = max_steps. Set > max_steps to s
 # default-off so every existing training path keeps its historical behavior.
 lr_schedule_hold_after_end: false
 log_every: 10
-# Optional rank-0 CUDA allocator telemetry. Disabled by default so existing Wan
-# runs keep identical logging/overhead; the Qwen and VideoMAE tasks enable it.
+# Optional rank-0 CUDA allocator telemetry. Disabled by default so runs keep
+# identical logging/overhead.
 log_cuda_memory: false
 save_every: 100
 # Optional exact optimizer-step checkpoints in addition to `save_every`.

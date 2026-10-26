@@ -1,3 +1,5 @@
+> Upstream FastWAM README, kept for attribution. For JAM commands, see the JAM [README](../../README.md).
+
 # FastWAM
 
 Official codebase for **Fast-WAM: Do World Action Models Need Test-time Future Imagination?**

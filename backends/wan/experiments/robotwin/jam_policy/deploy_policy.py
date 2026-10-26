@@ -223,10 +223,9 @@ class WorldActionRobotWinPolicy:
     ) -> Optional[tuple[torch.Tensor, torch.Tensor]]:
         """Cache an exact text-encoder result across replans.
 
-        Qwen multimodal policies do not expose a text-only ``encode_prompt``
-        and therefore automatically keep their original path.  Wan/JAMWan
-        reuses exactly the tensor and mask that ``infer_action`` would have
-        produced for the same immutable episode instruction.
+        A model without a text-only ``encode_prompt`` keeps its original
+        path.  JAMWan reuses exactly the tensor and mask that ``infer_action``
+        would have produced for the same immutable episode instruction.
         """
         encoder = getattr(self.model, "encode_prompt", None)
         infer_params = inspect.signature(self.model.infer_action).parameters

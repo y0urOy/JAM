@@ -8,9 +8,8 @@ redirect_common_files: false
 mot_checkpoint_mixed_attn: true
 action_dit_pretrained_path: checkpoints/ActionDiT_linear_interp_Wan22_alphascale_1024hdim.pt
 skip_dit_load_from_pretrain: false
-# Optional video-only override for random policy-Wan ablations. null preserves
-# the legacy flag above; the ActionDiT remains independently controlled by the
-# legacy flag so it can stay pretrained in a clean student-Wan ablation.
+# Must stay null (kept for config compatibility): there is no separately random
+# video expert; `skip_dit_load_from_pretrain` (set by evaluation) skips both loads.
 skip_video_dit_load_from_pretrain: null
 video_dit_random_seed: null
 
@@ -66,18 +65,18 @@ loss:
 # clean first frame at t=0 during training, exactly matching the infer_action
 # deployment path; the generative video FM loss is dropped and replaced by the
 # foresight alignment loss.
-# A frozen pretrained copy of the video DiT encodes the clean GT clip at t=0;
-# the first-frame token hidden states at `layer` are pulled (cosine) toward the
-# encoder's hidden states fused over `offsets` latent frames. Training-only:
-# encoder and projector are discarded at inference.
+# The recorded future frames are encoded by the frozen pretrained VAE and cut
+# into Wan patch tokens ("VAE-direct" targets; no teacher network runs). The
+# first-frame token hidden states at `layers` are pulled (cosine) toward each
+# latent frame in `offsets` through a shared projector. Training-only: the
+# projector is discarded at inference.
+# The JAM tasks always override target_type, layers, encoder_layers, offsets,
+# action_layers, lambda_foresight and the projector size set below.
 foresight:
-  # Training target representation. encoder_hidden is the historical/default
-  # Wan-teacher path. patch_embedding is the frozen-random Layer0 ablation;
-  # vae_direct uses deterministic frozen-VAE patches and no Wan teacher;
-  # teacher_mode selects pretrained vs independently random VAE weights.
+  # Training target representation; only `vae_direct` is implemented.
   target_type: encoder_hidden
-  # Precomputed teacher-feature cache roots (bf16+zstd, bit-exact). When set,
-  # the frozen 5B encoder is not instantiated and targets are read from disk.
+  # Precomputed target cache roots (bf16+zstd, bit-exact). When set, targets
+  # are read from disk instead of being computed from the future frames.
   target_cache_roots: null
   # Optional bit-exact frozen-VAE latent caches for the policy's current frame.
   # These remove the final train-time RGB/PyAV path. Validation uses separate
@@ -87,36 +86,23 @@ foresight:
   val_input_latent_cache_roots: null
   enabled: true
   video_cotrain: false
-  # Target encoder ablation. frozen_pretrained is the historical bit-identical
-  # default. If the policy video Wan is random, this mode independently loads
-  # the pretrained teacher prefix instead of copying the random student.
-  # online_ema tracks the policy video expert after each successful optimizer
-  # step using an unregistered fp32 shadow; frozen_random is an independently
-  # initialized, fixed Wan control.
+  # Target source; only `frozen_pretrained` (the pretrained VAE) is implemented.
   teacher_mode: frozen_pretrained
-  teacher_ema_decay: 0.995
-  teacher_random_seed: 42
-  layers: [12, 14, 16, 18]      # middle-depth student layers
-  encoder_layers: [12, 14, 16, 18]
-  offsets: [0, 1, 2]          # per-frame mode needs explicit offsets (3 latent frames)
-  offset_weights: null        # per-offset weighting (aligned to `offsets`); null=equal. Tilt toward
-                              # far future for long-horizon, e.g. [0.2,0.3,0.5]. Normalized to mean 1.
-  per_frame: true             # predict each future frame separately
-  shared_projector: true      # option 1: shared backbone + light heads (avoids a 12x larger projector)
-  action_layers: [15]         # action-stream foresight (group i -> latent frame i+1)
-  action_per_token: false     # true = align action group to the future frame's FULL spatial token
-                              # map (per-token, like video stream) instead of a pooled single vector
-  action_per_step: false      # true = do NOT mean-pool the action steps of a transition; each step
-                              # separately predicts its frame target (temporal richness). XOR per_token
-  lambda_action_foresight: 0.2
+  teacher_ema_decay: 0.995      # unused; kept for config compatibility
+  teacher_random_seed: 42       # unused; kept for config compatibility
+  layers: [12, 14, 16, 18]      # student video-expert layers
+  encoder_layers: [12, 14, 16, 18]  # target rows of the cache layout; VAE-direct uses [0]
+  offsets: [0, 1, 2]          # latent frames to predict (0 = current observation)
+  offset_weights: null        # per-offset weighting (aligned to `offsets`); null=equal. Normalized to mean 1.
+  per_frame: true             # predict each latent frame separately (required)
+  shared_projector: true      # shared trunk + light per-target heads (required)
+  action_layers: [15]         # action-stream foresight is not implemented; must be null
+  action_per_token: false     # unused; kept for config compatibility
+  action_per_step: false      # unused; kept for config compatibility
+  lambda_action_foresight: 0.2  # unused; kept for config compatibility
   lambda_foresight: 0.2
-  projector_type: transformer   # "transformer" = DiT-block trunk (default, ~0.45B at the settings
-                                # below); "mlp" = REPA-style wide 3-layer MLP (no attention),
-                                # sized by projector_mlp_hidden.
-  projector_mlp_hidden: 3072    # only used when projector_type=mlp: hidden for the shared 2-layer
-                                # SiLU trunk. 3072 = NO compression (trunk stays at the model dim, like
-                                # the transformer; isolates "attention trunk -> MLP trunk", ~132M).
-                                # 2048~86M (mild -33% compression) / 1024~42M / 256~10M (strong).
+  projector_type: transformer   # DiT-block trunk; the only implemented projector type
+  projector_mlp_hidden: 3072    # unused; kept for config compatibility
   projector_hidden_dim: null     # transformer-projector trunk width; null keeps video hidden_dim=3072.
                                 # Use 1536 with projector_ffn_dim=6144 for the down-projected tiny head.
   projector_num_layers: 3       # transformer-projector only

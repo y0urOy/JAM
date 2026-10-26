@@ -6,18 +6,10 @@ Run: python scripts/smoke_test_foresight.py
 import torch
 
 from jam_wan.models.wan22.foresight import (
-    ForesightProjector,
-    build_foresight_ema_shadow,
-    build_foresight_encoder,
-    build_random_foresight_encoder,
-    build_random_foresight_vae,
-    encode_foresight_patch_embedding,
-    encode_foresight_hidden,
+    SharedForesightProjector,
     encode_foresight_vae_direct,
-    fuse_future_targets,
     lift_foresight_vae_patches,
     patch_foresight_vae_latents,
-    update_foresight_ema_teacher_,
 )
 from jam_wan.models.wan22.jam_wan import JAMWan
 from jam_wan.models.wan22.mot import MoT
@@ -54,163 +46,16 @@ def tiny_video_dit_config(num_layers: int = 4, mask_mode: str = "first_frame_cau
 
 
 def test_projector():
-    proj = ForesightProjector(in_dim=64, out_dim=96, num_layers=3, num_heads=4, ffn_dim=128)
+    proj = SharedForesightProjector(
+        in_dim=64, out_dim=96, keys=["2_1", "2_2"], hidden_dim=32, num_layers=2, num_heads=4, ffn_dim=128
+    )
     x = torch.randn(2, 16, 64)
-    out = proj(x)
-    assert out.shape == (2, 16, 96), out.shape
+    feat = proj.backbone(x)
+    outs = [proj.head(feat, key) for key in ("2_1", "2_2")]
+    assert feat.shape == (2, 16, 32), feat.shape
+    assert all(out.shape == (2, 16, 96) for out in outs), [out.shape for out in outs]
     n_params = sum(p.numel() for p in proj.parameters())
-    print(f"[ok] projector forward: {tuple(x.shape)} -> {tuple(out.shape)} ({n_params/1e3:.1f}K params)")
-
-
-def test_encoder_and_fusion():
-    student = tiny_video_dit()
-    encoder = build_foresight_encoder(student)
-    assert encoder.video_attention_mask_mode == "bidirectional"
-    assert all(not p.requires_grad for p in encoder.parameters())
-    # frozen copy must hold identical weights
-    for (n1, p1), (n2, p2) in zip(student.named_parameters(), encoder.named_parameters()):
-        assert n1 == n2 and torch.equal(p1, p2), n1
-
-    # An independently loaded pretrained teacher can be adopted directly,
-    # avoiding another multi-billion-parameter deepcopy.
-    independent_source = tiny_video_dit()
-    adopted_encoder = build_foresight_encoder(
-        independent_source,
-        max_layers=2,
-        copy_model=False,
-        source="independent-pretrained-test",
-    )
-    assert adopted_encoder is independent_source
-    assert len(adopted_encoder.blocks) == 2
-    assert all(not p.requires_grad for p in adopted_encoder.parameters())
-
-    batch, frames, height, width = 2, 3, 8, 8
-    latents = torch.randn(batch, 48, frames, height, width)
-    context = torch.randn(batch, 5, 32)
-    context_mask = torch.ones(batch, 5, dtype=torch.bool)
-
-    hidden, tokens_per_frame = encode_foresight_hidden(
-        encoder=encoder,
-        clean_latents=latents,
-        context=context,
-        context_mask=context_mask,
-        capture_layer=2,
-    )
-    assert tokens_per_frame == (height // 2) * (width // 2), tokens_per_frame
-    assert hidden.shape == (batch, frames * tokens_per_frame, 96), hidden.shape
-    assert hidden.requires_grad is False
-
-    # fusion: offsets=None averages all frames
-    target_all, valid_all = fuse_future_targets(hidden, tokens_per_frame, None, None)
-    manual = hidden.view(batch, frames, tokens_per_frame, 96).mean(dim=1)
-    assert torch.allclose(target_all, manual, atol=1e-6)
-    assert valid_all.all()
-
-    # fusion with explicit offsets and a pad mask
-    frame_valid = torch.tensor([[True, True, False], [True, False, False]])
-    target, valid = fuse_future_targets(hidden, tokens_per_frame, [1, 2], frame_valid)
-    h = hidden.view(batch, frames, tokens_per_frame, 96)
-    assert torch.allclose(target[0], h[0, 1], atol=1e-6)  # frame 2 padded -> only frame 1
-    assert bool(valid[0]) is True
-    assert bool(valid[1]) is False  # frames 1 and 2 both padded
-    print(f"[ok] encoder capture + target fusion: hidden {tuple(hidden.shape)}, tpf={tokens_per_frame}")
-
-
-def test_teacher_variants_and_ema():
-    student = tiny_video_dit(num_layers=4)
-
-    # Random-teacher construction must be deterministic, independent of the
-    # student, prefix-truncated, and invisible to the caller's RNG stream.
-    torch.manual_seed(1234)
-    expected_next = torch.rand(8)
-    torch.manual_seed(1234)
-    random_teacher = build_random_foresight_encoder(
-        tiny_video_dit_config(num_layers=4),
-        max_layers=2,
-        seed=77,
-        device="cpu",
-        torch_dtype=torch.float32,
-    )
-    actual_next = torch.rand(8)
-    assert torch.equal(actual_next, expected_next)
-    assert len(random_teacher.blocks) == 2
-    assert random_teacher.video_attention_mask_mode == "bidirectional"
-    assert all(not parameter.requires_grad for parameter in random_teacher.parameters())
-    assert not torch.equal(
-        random_teacher.patch_embedding.weight,
-        student.patch_embedding.weight,
-    )
-
-    random_teacher_2 = build_random_foresight_encoder(
-        tiny_video_dit_config(num_layers=4),
-        max_layers=2,
-        seed=77,
-        device="cpu",
-        torch_dtype=torch.float32,
-    )
-    for (_, first), (_, second) in zip(
-        random_teacher.named_parameters(), random_teacher_2.named_parameters()
-    ):
-        assert torch.equal(first, second)
-
-    # Random Layer0 is the exact seed-matched patch embedding from the full
-    # random teacher and executes no Wan blocks or context/timestep path.
-    layer0_teacher = build_random_foresight_encoder(
-        tiny_video_dit_config(num_layers=4),
-        max_layers=0,
-        seed=77,
-        device="cpu",
-        torch_dtype=torch.float32,
-    )
-    assert len(layer0_teacher.blocks) == 0
-    assert torch.equal(
-        layer0_teacher.patch_embedding.weight,
-        random_teacher.patch_embedding.weight,
-    )
-    latents = torch.randn(2, 48, 3, 8, 8)
-    context = torch.randn(2, 5, 32)
-    context_mask = torch.ones(2, 5, dtype=torch.bool)
-    layer0_hidden, layer0_tpf = encode_foresight_patch_embedding(
-        layer0_teacher, latents
-    )
-    full_pre = random_teacher.pre_dit(
-        x=latents,
-        timestep=torch.zeros(2),
-        context=context,
-        context_mask=context_mask,
-        action=None,
-        fuse_vae_embedding_in_latents=True,
-    )
-    assert layer0_tpf == int(full_pre["meta"]["tokens_per_frame"])
-    assert torch.equal(layer0_hidden, full_pre["tokens"])
-
-    # Match training precision: bf16 student/teacher with a separate fp32
-    # master, so small EMA increments are not lost to bf16 rounding.
-    ema_student = tiny_video_dit(num_layers=4).to(torch.bfloat16)
-    ema_teacher = build_foresight_encoder(ema_student, max_layers=2)
-    shadow = build_foresight_ema_shadow(ema_teacher)
-    teacher_before = {
-        name: parameter.detach().float().clone()
-        for name, parameter in ema_teacher.named_parameters()
-    }
-    with torch.no_grad():
-        for parameter in ema_student.parameters():
-            parameter.add_(0.25)
-    update_foresight_ema_teacher_(
-        ema_teacher,
-        ema_student,
-        shadow,
-        decay=0.5,
-    )
-    student_parameters = dict(ema_student.named_parameters())
-    for name, teacher_parameter in ema_teacher.named_parameters():
-        expected = teacher_before[name].mul(0.5).add(
-            student_parameters[name].float(), alpha=0.5
-        )
-        assert torch.equal(shadow[name], expected)
-        assert torch.equal(teacher_parameter, expected.to(teacher_parameter.dtype))
-        assert teacher_parameter.grad is None
-    print("[ok] random frozen teacher + fp32 online EMA teacher")
+    print(f"[ok] shared projector forward: {tuple(x.shape)} -> 2 x {tuple(outs[0].shape)} ({n_params/1e3:.1f}K params)")
 
 
 def test_vae_direct_target():
@@ -264,43 +109,6 @@ def test_vae_direct_target():
     print("[ok] pretrained VAE-direct target: 192->3072 fixed isometric lift")
 
 
-def test_random_teacher_vae_builder():
-    """Random teacher VAE must be deterministic, frozen, and RNG-isolated."""
-
-    class TinyVAE(torch.nn.Module):
-        def __init__(self):
-            super().__init__()
-            self.encoder = torch.nn.Sequential(
-                torch.nn.Conv3d(3, 8, kernel_size=3, padding=1),
-                torch.nn.SiLU(),
-                torch.nn.Conv3d(8, 4, kernel_size=1),
-            )
-
-    torch.manual_seed(7)
-    reference = TinyVAE()
-    state_before = torch.random.get_rng_state().clone()
-    teacher_a = build_random_foresight_vae(
-        reference, seed=42, device="cpu", torch_dtype=torch.float32
-    )
-    state_after = torch.random.get_rng_state().clone()
-    teacher_b = build_random_foresight_vae(
-        reference, seed=42, device="cpu", torch_dtype=torch.float32
-    )
-
-    assert torch.equal(state_before, state_after), "random teacher VAE shifted run RNG"
-    assert not teacher_a.training
-    assert all(not parameter.requires_grad for parameter in teacher_a.parameters())
-    assert all(
-        torch.equal(value, teacher_b.state_dict()[name])
-        for name, value in teacher_a.state_dict().items()
-    )
-    assert any(
-        not torch.equal(value, reference.state_dict()[name])
-        for name, value in teacher_a.state_dict().items()
-    )
-    print("[ok] random frozen teacher VAE: deterministic + frozen + RNG-isolated")
-
-
 def test_mot_hidden_capture():
     num_layers = 4
     video_expert = tiny_video_dit(num_layers=num_layers)
@@ -350,10 +158,13 @@ def test_mot_hidden_capture():
 
 def test_gradient_flow():
     """Foresight loss must backprop into projector AND the student video tokens."""
-    proj = ForesightProjector(in_dim=64, out_dim=64, num_layers=2, num_heads=4, ffn_dim=128)
+    proj = SharedForesightProjector(
+        in_dim=64, out_dim=64, keys=["1_1"], num_layers=2, num_heads=4, ffn_dim=128
+    )
     h_obs = torch.randn(2, 16, 64, requires_grad=True)
     target = torch.randn(2, 16, 64)
-    cos = torch.nn.functional.cosine_similarity(proj(h_obs).float(), target.float(), dim=-1)
+    pred = proj.head(proj.backbone(h_obs), "1_1")
+    cos = torch.nn.functional.cosine_similarity(pred.float(), target.float(), dim=-1)
     loss = (1.0 - cos.mean(dim=1)).mean()
     loss.backward()
     assert h_obs.grad is not None and h_obs.grad.abs().sum() > 0
@@ -361,137 +172,78 @@ def test_gradient_flow():
     print(f"[ok] gradient flow: loss={loss.item():.4f}, |dL/dh|={h_obs.grad.abs().mean().item():.6f}")
 
 
-def test_jam_wan_target_dispatch():
-    """Exercise both new target branches through JAMWan's real loss method."""
-
-    class TinyVAE(torch.nn.Module):
-        temporal_downsample_factor = 4
-
-    config = tiny_video_dit_config(num_layers=4)
-    config.update(hidden_dim=192, ffn_dim=384, num_heads=8)
-
-    def make_model(target_type: str):
-        video = WanVideoDiT(**config)
-        action = WanVideoDiT(**config)
-        mot = MoT(
-            mixtures={"video": video, "action": action},
-            mot_checkpoint_mixed_attn=False,
-        )
-        encoder = None
-        teacher_mode = "frozen_pretrained"
-        if target_type == "patch_embedding":
-            teacher_mode = "frozen_random"
-            encoder = build_random_foresight_encoder(
-                config,
-                max_layers=0,
-                seed=42,
-                device="cpu",
-                torch_dtype=torch.float32,
-            )
-        model = JAMWan(
-            video_expert=video,
-            action_expert=action,
-            mot=mot,
-            vae=TinyVAE(),
-            text_dim=32,
-            device="cpu",
-            torch_dtype=torch.float32,
-            foresight_encoder=encoder,
-            foresight_cfg={
-                "enabled": True,
-                "video_cotrain": False,
-                "target_type": target_type,
-                "teacher_mode": teacher_mode,
-                "layers": [2],
-                "encoder_layers": [0],
-                "offsets": [0, 1, 2],
-                "per_frame": True,
-                "shared_projector": True,
-                "projector_hidden_dim": 96,
-                "projector_num_layers": 1,
-                "projector_num_heads": 4,
-                "projector_ffn_dim": 192,
-                "action_layers": None,
-            },
-        )
-        return model
-
-    for target_type in ("patch_embedding", "vae_direct"):
-        model = make_model(target_type)
-        latents = torch.randn(2, 48, 3, 8, 8)
-        student = torch.randn(2, 16, 192, requires_grad=True)
-        loss, action_loss = model._compute_foresight_loss(
-            video_hidden_by_layer={2: student},
-            action_hidden_by_layer=None,
-            tokens_per_frame=16,
-            input_latents=latents,
-            foresight_target_latents=None,
-            context=torch.randn(2, 5, 32),
-            context_mask=torch.ones(2, 5, dtype=torch.bool),
-            fuse_vae_embedding_in_latents=True,
-            image_is_pad=torch.zeros(2, 9, dtype=torch.bool),
-        )
-        assert torch.isfinite(loss) and action_loss.item() == 0.0
-        loss.backward()
-        assert student.grad is not None and student.grad.abs().sum() > 0
-        assert all(
-            parameter.grad is None
-            for parameter in (model.foresight_encoder.parameters() if model.foresight_encoder else [])
-        )
-        print(f"[ok] JAMWan target dispatch + gradient: {target_type}, loss={loss.item():.4f}")
+class TinyVAE(torch.nn.Module):
+    temporal_downsample_factor = 4
 
 
-def test_cached_vae_direct_loss_equivalence():
-    """Compact raw VAE cache must reproduce the online VAE-direct loss."""
+def make_tiny_jam_wan(**foresight_overrides) -> JAMWan:
     config = tiny_video_dit_config(num_layers=4)
     config.update(hidden_dim=192, ffn_dim=384, num_heads=8)
     video = WanVideoDiT(**config)
     action = WanVideoDiT(**config)
-    model = JAMWan(
+    foresight_cfg = {
+        "enabled": True,
+        "video_cotrain": False,
+        "target_type": "vae_direct",
+        "teacher_mode": "frozen_pretrained",
+        "layers": [2],
+        "encoder_layers": [0],
+        "offsets": [1, 2],
+        "per_frame": True,
+        "shared_projector": True,
+        "projector_hidden_dim": 96,
+        "projector_num_layers": 1,
+        "projector_num_heads": 4,
+        "projector_ffn_dim": 192,
+        "action_layers": None,
+    }
+    foresight_cfg.update(foresight_overrides)
+    return JAMWan(
         video_expert=video,
         action_expert=action,
         mot=MoT(
             mixtures={"video": video, "action": action},
             mot_checkpoint_mixed_attn=False,
         ),
-        vae=type("TinyVAE", (torch.nn.Module,), {"temporal_downsample_factor": 4})(),
+        vae=TinyVAE(),
         text_dim=32,
         device="cpu",
         torch_dtype=torch.float32,
-        foresight_cfg={
-            "enabled": True,
-            "video_cotrain": False,
-            "target_type": "vae_direct",
-            "teacher_mode": "frozen_pretrained",
-            "target_cache_roots": ["synthetic-compact-cache"],
-            "layers": [2],
-            "encoder_layers": [0],
-            "offsets": [1, 2],
-            "per_frame": True,
-            "shared_projector": True,
-            "projector_hidden_dim": 96,
-            "projector_num_layers": 1,
-            "projector_num_heads": 4,
-            "projector_ffn_dim": 192,
-            "action_layers": None,
-        },
+        foresight_cfg=foresight_cfg,
     )
+
+
+def test_jam_wan_vae_direct_loss():
+    """Exercise the VAE-direct target through JAMWan's real loss method."""
+    model = make_tiny_jam_wan()
+    latents = torch.randn(2, 48, 3, 8, 8)
+    student = torch.randn(2, 16, 192, requires_grad=True)
+    loss = model._compute_foresight_loss(
+        video_hidden_by_layer={2: student},
+        tokens_per_frame=16,
+        input_latents=latents,
+        image_is_pad=torch.zeros(2, 9, dtype=torch.bool),
+    )
+    assert torch.isfinite(loss)
+    loss.backward()
+    assert student.grad is not None and student.grad.abs().sum() > 0
+    print(f"[ok] JAMWan VAE-direct loss + gradient: loss={loss.item():.4f}")
+
+
+def test_cached_vae_direct_loss_equivalence():
+    """Compact raw VAE cache must reproduce the online VAE-direct loss."""
+    model = make_tiny_jam_wan(target_cache_roots=["synthetic-compact-cache"])
     latents = torch.randn(2, 48, 3, 8, 8)
     raw, tpf = patch_foresight_vae_latents(latents, patch_size=(1, 2, 2))
     student = torch.randn(2, tpf, 192)
     kwargs = dict(
         video_hidden_by_layer={2: student},
-        action_hidden_by_layer=None,
         tokens_per_frame=tpf,
         input_latents=latents,
-        foresight_target_latents=None,
-        context=torch.randn(2, 5, 32),
-        context_mask=torch.ones(2, 5, dtype=torch.bool),
-        fuse_vae_embedding_in_latents=True,
         image_is_pad=torch.zeros(2, 9, dtype=torch.bool),
     )
-    online, _ = model._compute_foresight_loss(**kwargs)
-    cached, _ = model._compute_foresight_loss(
+    online = model._compute_foresight_loss(**kwargs)
+    cached = model._compute_foresight_loss(
         **kwargs,
         precomputed_enc_cache={0: raw},
     )
@@ -499,15 +251,32 @@ def test_cached_vae_direct_loss_equivalence():
     print(f"[ok] compact cached VAE-direct == online loss exactly: {online.item():.6f}")
 
 
+def test_only_released_objective_is_accepted():
+    """Settings outside the released VAE-direct objective fail at construction."""
+    for override in (
+        {"target_type": "encoder_hidden"},
+        {"teacher_mode": "frozen_random"},
+        {"encoder_layers": [2]},
+        {"per_frame": False},
+        {"shared_projector": False},
+        {"projector_type": "mlp"},
+        {"action_layers": [2]},
+    ):
+        try:
+            make_tiny_jam_wan(**override)
+        except ValueError:
+            continue
+        raise AssertionError(f"expected a ValueError for {override}")
+    print("[ok] only the released VAE-direct foresight objective is accepted")
+
+
 if __name__ == "__main__":
     torch.manual_seed(42)
     test_projector()
-    test_encoder_and_fusion()
-    test_teacher_variants_and_ema()
     test_vae_direct_target()
-    test_random_teacher_vae_builder()
     test_mot_hidden_capture()
     test_gradient_flow()
-    test_jam_wan_target_dispatch()
+    test_jam_wan_vae_direct_loss()
     test_cached_vae_direct_loss_equivalence()
+    test_only_released_objective_is_accepted()
     print("\nAll foresight smoke tests passed.")

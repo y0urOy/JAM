@@ -1,4 +1,5 @@
 #!/usr/bin/env python
+import os
 import copy
 from collections import OrderedDict
 from types import MethodType, SimpleNamespace
@@ -17,7 +18,6 @@ from jam_multimodal.models.backbones.jam_qwen35 import (
     QWEN_PREDICTOR_JAM,
     QWEN_PREDICTOR_LEGACY,
     JAMQwen35,
-    build_random_qwen_backbone,
     extract_grouped_visual_tokens,
     forward_with_decoder_layer_capture,
     future_target_valid_mask,
@@ -29,6 +29,12 @@ from jam_multimodal.models.backbones.jam_qwen35 import (
 from jam_multimodal.models.backbones.action_dit import ActionDiT
 from jam_multimodal.models.backbones.action_dit_yak import ActionDiTYak
 from jam_multimodal.models.backbones.foresight_yak import ForesightProjector
+
+
+QWEN_MODEL = os.path.join(
+    os.environ.get("JAM_MODEL_ROOT", os.path.join(os.path.dirname(__file__), "../../../artifacts/models")),
+    "Qwen3.5-2B-Base",
+)
 
 
 def test_offset_layout():
@@ -107,7 +113,7 @@ def test_tensor_native_qwen_preprocessing_matches_official_processor():
     from transformers import AutoProcessor
 
     processor = AutoProcessor.from_pretrained(
-        "checkpoints/Qwen3.5-2B-Base",
+        QWEN_MODEL,
         min_pixels=224 * 224,
         max_pixels=224 * 224,
         local_files_only=True,
@@ -272,55 +278,6 @@ def test_native_qwen_carries_only_live_proprio_context():
     )
     assert prepared["proprio_token"] is live_context
     assert capture.received is prepared
-
-
-class FakeConditionalGeneration:
-    last_kwargs = None
-
-    @classmethod
-    def _from_config(cls, config, **kwargs):
-        cls.last_kwargs = kwargs
-        return SimpleNamespace(model=nn.Linear(config.width, config.width))
-
-
-def test_random_teacher_builder_is_deterministic_and_rng_isolated():
-    config = SimpleNamespace(width=4)
-    torch.manual_seed(123)
-    state_before = torch.random.get_rng_state().clone()
-    first = build_random_qwen_backbone(
-        FakeConditionalGeneration,
-        config,
-        seed=42,
-        torch_dtype=torch.bfloat16,
-        attn_implementation="sdpa",
-    )
-    assert torch.equal(state_before, torch.random.get_rng_state())
-    second = build_random_qwen_backbone(
-        FakeConditionalGeneration,
-        config,
-        seed=42,
-        torch_dtype=torch.bfloat16,
-        attn_implementation="sdpa",
-    )
-    third = build_random_qwen_backbone(
-        FakeConditionalGeneration,
-        config,
-        seed=43,
-        torch_dtype=torch.bfloat16,
-        attn_implementation="sdpa",
-    )
-    assert all(
-        torch.equal(first_value, second_value)
-        for first_value, second_value in zip(first.parameters(), second.parameters())
-    )
-    assert any(
-        not torch.equal(first_value, third_value)
-        for first_value, third_value in zip(first.parameters(), third.parameters())
-    )
-    assert FakeConditionalGeneration.last_kwargs == {
-        "dtype": torch.bfloat16,
-        "attn_implementation": "sdpa",
-    }
 
 
 class AddLayer(nn.Module):
@@ -964,30 +921,6 @@ def test_legacy_fastwam_checkpoint_remains_loadable(
     assert loaded["format"] == QWEN_WAN_LEGACY_CHECKPOINT_FORMAT
 
 
-def test_random_teacher_checkpoint_identity(
-    tmp_path="/tmp/qwen_jam_random_teacher_cpu_test.pt",
-):
-    model, _, _ = _make_toy_qwen_model(
-        teacher_mode="frozen_random",
-        teacher_random_seed=17,
-    )
-    model.save_checkpoint(tmp_path, step=1)
-    payload = model.load_checkpoint(tmp_path)
-    assert payload["teacher_mode"] == "frozen_random"
-    assert payload["teacher_random_seed"] == 17
-
-    mismatched, _, _ = _make_toy_qwen_model(
-        teacher_mode="frozen_random",
-        teacher_random_seed=18,
-    )
-    try:
-        mismatched.load_checkpoint(tmp_path)
-    except ValueError as exc:
-        assert "random-teacher seed mismatch" in str(exc)
-    else:
-        raise AssertionError("Random-teacher checkpoint must reject a different seed.")
-
-
 def main():
     test_offset_layout()
     test_future_pad_mask()
@@ -996,7 +929,6 @@ def main():
     test_horizontal_camera_split_is_exact_zero_copy_view()
     test_tensor_native_qwen_preprocessing_matches_official_processor()
     test_native_qwen_carries_only_live_proprio_context()
-    test_random_teacher_builder_is_deterministic_and_rng_isolated()
     test_one_based_layer_capture()
     test_action_dit_layerwise_mot_mixes_and_masks_visual_tokens()
     test_qwen_yak18_layer_map_and_direct_prefix_backward()
@@ -1009,7 +941,6 @@ def main():
     test_teacher_first_is_loss_and_gradient_exact()
     test_toy_end_to_end_and_teacher_freeze()
     test_legacy_fastwam_checkpoint_remains_loadable()
-    test_random_teacher_checkpoint_identity()
     print("QWEN FORESIGHT OFFSET/LAYER CHECKS PASSED")
 
 

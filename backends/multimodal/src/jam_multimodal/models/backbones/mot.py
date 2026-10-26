@@ -125,29 +125,11 @@ class MoT(nn.Module):
         k_cat: torch.Tensor,
         v_cat: torch.Tensor,
         attention_mask: torch.Tensor,
-        return_attn_probs: bool = False,
-    ) -> torch.Tensor | tuple[torch.Tensor, torch.Tensor]:
+    ) -> torch.Tensor:
         batch_size, query_len, _ = q_cat.shape
         key_len = k_cat.shape[1]
         H, H_kv, D = self.num_heads, self.num_kv_heads, self.attn_head_dim
         attn_mask = self._format_attention_mask(attention_mask, batch_size, query_len, key_len, q_cat.device)
-
-        if return_attn_probs:
-            q = q_cat.view(batch_size, query_len, H, D).transpose(1, 2)
-            k = k_cat.view(batch_size, key_len, H_kv, D).transpose(1, 2)
-            v = v_cat.view(batch_size, key_len, H_kv, D).transpose(1, 2)
-            if H_kv != H:
-                if self.gqa_implementation != "repeat":
-                    raise ValueError("Attention capture with GQA currently requires gqa_implementation='repeat'.")
-                repeat_factor = H // H_kv
-                k = k.repeat_interleave(repeat_factor, dim=1)
-                v = v.repeat_interleave(repeat_factor, dim=1)
-            scores = torch.matmul(q.float(), k.float().transpose(-2, -1)) * (D ** -0.5)
-            scores = scores.masked_fill(~attn_mask, torch.finfo(scores.dtype).min)
-            attn_probs = torch.softmax(scores, dim=-1).to(dtype=v.dtype)
-            out = torch.matmul(attn_probs, v)
-            out = out.transpose(1, 2).reshape(batch_size, query_len, H * D)
-            return out, attn_probs
 
         def _sdpa_context():
             if not self.force_flash_attention:
@@ -200,34 +182,6 @@ class MoT(nn.Module):
             "use_gradient_checkpointing": bool(getattr(expert, "use_gradient_checkpointing", False)),
         }
 
-    def _build_io_omnigen2(self, expert, block, x: torch.Tensor, freqs: torch.Tensor, t_mod: torch.Tensor) -> dict:
-        from omnigen2.models.embeddings import apply_rotary_emb
-
-        norm_x, gate_msa, scale_mlp, gate_mlp = block.norm1(x, t_mod)
-        batch_size, seq_len = norm_x.shape[:2]
-        H, H_kv, D = int(expert.num_heads), int(expert.num_kv_heads), int(expert.attn_head_dim)
-        q = block.attn.to_q(norm_x).view(batch_size, seq_len, H, D)
-        k = block.attn.to_k(norm_x).view(batch_size, seq_len, H_kv, D)
-        v = block.attn.to_v(norm_x).view(batch_size, seq_len, H_kv, D)
-        if block.attn.norm_q is not None:
-            q = block.attn.norm_q(q)
-        if block.attn.norm_k is not None:
-            k = block.attn.norm_k(k)
-        q = apply_rotary_emb(q, freqs, use_real=False)
-        k = apply_rotary_emb(k, freqs, use_real=False)
-        return {
-            "q": q.reshape(batch_size, seq_len, H * D),
-            "k": k.reshape(batch_size, seq_len, H_kv * D),
-            "v": v.reshape(batch_size, seq_len, H_kv * D),
-            "residual_x": x,
-            "post_state": {
-                "gate_msa": gate_msa,
-                "scale_mlp": scale_mlp,
-                "gate_mlp": gate_mlp,
-            },
-            "use_gradient_checkpointing": bool(getattr(expert, "use_gradient_checkpointing", False)),
-        }
-
     def _build_expert_attention_io(
         self,
         expert,
@@ -236,152 +190,9 @@ class MoT(nn.Module):
         freqs: torch.Tensor,
         t_mod: torch.Tensor,
     ) -> dict:
-        if self.block_protocol == "omnigen2":
-            return self._build_io_omnigen2(expert, block, x, freqs, t_mod)
         if self.block_protocol == "wan22":
             return self._build_io_wan22(expert, block, x, freqs, t_mod)
         raise ValueError(f"Unsupported block_protocol={self.block_protocol!r}")
-
-    @staticmethod
-    def _sana_split_modulation(block, t_mod: torch.Tensor):
-        return (block.scale_shift_table[None].to(t_mod.dtype) + t_mod.reshape(t_mod.shape[0], 6, -1)).chunk(6, dim=1)
-
-    def _sana_video_io(self, block, x: torch.Tensor, t_mod: torch.Tensor, hw: tuple[int, int]) -> dict:
-        from models.diffusion.model.nets.sana_blocks import t2i_modulate
-
-        shift_msa, scale_msa, gate_msa, shift_mlp, scale_mlp, gate_mlp = self._sana_split_modulation(block, t_mod)
-        attn_in = t2i_modulate(block.norm1(x), shift_msa, scale_msa)
-        batch_size, seq_len, hidden = attn_in.shape
-        qkv = block.attn.qkv(attn_in).reshape(batch_size, seq_len, 3, hidden)
-        q, k, v = qkv.unbind(2)
-        q = block.attn.q_norm(q).transpose(-1, -2)
-        k = block.attn.k_norm(k).transpose(-1, -2)
-        v = v.transpose(-1, -2)
-        head_dim = int(block.attn.dim)
-        q = q.reshape(batch_size, hidden // head_dim, head_dim, seq_len)
-        k = k.reshape(batch_size, hidden // head_dim, head_dim, seq_len)
-        v = v.reshape(batch_size, hidden // head_dim, head_dim, seq_len)
-        return {
-            "q": q,
-            "k": k,
-            "v": v,
-            "residual_x": x,
-            "hw": hw,
-            "gate_msa": gate_msa,
-            "shift_mlp": shift_mlp,
-            "scale_mlp": scale_mlp,
-            "gate_mlp": gate_mlp,
-            "use_gradient_checkpointing": False,
-        }
-
-    @staticmethod
-    def _sana_linear_attention(attn, q: torch.Tensor, k: torch.Tensor, v: torch.Tensor) -> torch.Tensor:
-        out = attn.attn_matmul(q, k.transpose(-1, -2), v).to(dtype=v.dtype)
-        return out.view(q.shape[0], -1, q.shape[-1]).permute(0, 2, 1)
-
-    @staticmethod
-    def _sana_video_post(block, attn_out: torch.Tensor, state: dict, context_payload: Optional[dict]) -> torch.Tensor:
-        from models.diffusion.model.nets.sana_blocks import t2i_modulate
-
-        x = state["residual_x"] + state["gate_msa"] * block.attn.proj(attn_out)
-        if context_payload is not None and context_payload.get("context") is not None:
-            x = x + block.cross_attn(x, context_payload["context"], context_payload.get("mask"))
-        mlp_input = t2i_modulate(block.norm2(x), state["shift_mlp"], state["scale_mlp"])
-        return x + state["gate_mlp"] * block.mlp(mlp_input, HW=state["hw"])
-
-    def _forward_sana(
-        self,
-        embeds_all: Dict[str, torch.Tensor],
-        attention_mask: object,
-        freqs_all: Dict[str, object],
-        context_all: Dict[str, Optional[dict]],
-        t_mod_all: Dict[str, torch.Tensor],
-    ):
-        del attention_mask, freqs_all
-        if "video" not in embeds_all or "cond" not in embeds_all or "action" not in embeds_all:
-            raise ValueError("SANA MoT expects embeds_all with keys: video, cond, action.")
-        video_expert = self.mixtures["video"]
-        action_expert = self.mixtures["action"]
-        video = embeds_all["video"]
-        cond = embeds_all["cond"]
-        action = embeds_all["action"]
-        video_hw = tuple(context_all["video"]["hw"])
-        cond_hw = tuple(context_all["cond"]["hw"])
-        video_context = context_all.get("video")
-        cond_context = context_all.get("cond")
-        action_context = context_all.get("action")
-
-        for layer_idx in range(self.num_layers):
-            v_block = video_expert.blocks[layer_idx]
-            a_block = action_expert.blocks[layer_idx]
-            v_state = self._sana_video_io(v_block, video, t_mod_all["video"], video_hw)
-            c_state = self._sana_video_io(v_block, cond, t_mod_all["cond"], cond_hw)
-            a_state = a_block.build_self_attention_io(action, t_mod_all["action"])
-
-            v_attn = self._sana_linear_attention(v_block.attn, v_state["q"], v_state["k"], v_state["v"])
-            c_attn = self._sana_linear_attention(v_block.attn, c_state["q"], c_state["k"], c_state["v"])
-            a_attn = a_block.linear_attention(
-                a_state["q"],
-                torch.cat([c_state["k"].to(a_state["k"].dtype), a_state["k"]], dim=-1),
-                torch.cat([c_state["v"].to(a_state["v"].dtype), a_state["v"]], dim=-1),
-            )
-
-            video = self._sana_video_post(v_block, v_attn, v_state, video_context)
-            cond = self._sana_video_post(v_block, c_attn, c_state, cond_context)
-            action = a_block.apply_post(
-                a_attn,
-                a_state,
-                None if action_context is None else action_context.get("context_tokens"),
-                None if action_context is None else action_context.get("context_mask_bool"),
-            )
-        return {"video": video, "cond": cond, "action": action}
-
-    def prefill_sana_condition_cache(
-        self,
-        cond_tokens: torch.Tensor,
-        cond_t_mod: torch.Tensor,
-        cond_context_payload: dict,
-    ) -> dict[str, object]:
-        if self.block_protocol != "sana":
-            raise ValueError("`prefill_sana_condition_cache` requires block_protocol='sana'.")
-        video_expert = self.mixtures["video"]
-        cond = cond_tokens
-        hw = tuple(cond_context_payload["hw"])
-        caches = []
-        for layer_idx in range(self.num_layers):
-            block = video_expert.blocks[layer_idx]
-            state = self._sana_video_io(block, cond, cond_t_mod, hw)
-            caches.append({"k": state["k"], "v": state["v"]})
-            attn = self._sana_linear_attention(block.attn, state["q"], state["k"], state["v"])
-            cond = self._sana_video_post(block, attn, state, cond_context_payload)
-        return {"layers": caches, "final_cond": cond, "hw": hw}
-
-    def forward_sana_action_with_condition_cache(
-        self,
-        action_tokens: torch.Tensor,
-        action_t_mod: torch.Tensor,
-        action_context_payload: Optional[dict],
-        condition_cache: dict[str, object],
-    ) -> torch.Tensor:
-        if self.block_protocol != "sana":
-            raise ValueError("`forward_sana_action_with_condition_cache` requires block_protocol='sana'.")
-        action_expert = self.mixtures["action"]
-        action = action_tokens
-        for layer_idx, cache in enumerate(condition_cache["layers"]):
-            block = action_expert.blocks[layer_idx]
-            state = block.build_self_attention_io(action, action_t_mod)
-            attn = block.linear_attention(
-                state["q"],
-                torch.cat([cache["k"].to(state["k"].dtype), state["k"]], dim=-1),
-                torch.cat([cache["v"].to(state["v"].dtype), state["v"]], dim=-1),
-            )
-            action = block.apply_post(
-                attn,
-                state,
-                None if action_context_payload is None else action_context_payload.get("context_tokens"),
-                None if action_context_payload is None else action_context_payload.get("context_mask_bool"),
-            )
-        return action
 
     @staticmethod
     def _apply_post_wan22(block, residual_x: torch.Tensor, mixed_attn_out: torch.Tensor, post_state: dict, context_payload: Optional[dict]) -> torch.Tensor:
@@ -396,15 +207,6 @@ class MoT(nn.Module):
         mlp_input = modulate(block.norm2(x), post_state["shift_mlp"], post_state["scale_mlp"])
         return block.gate(x, post_state["gate_mlp"], block.ffn(mlp_input))
 
-    @staticmethod
-    def _apply_post_omnigen2(block, residual_x: torch.Tensor, mixed_attn_out: torch.Tensor, post_state: dict) -> torch.Tensor:
-        attn_proj = block.attn.to_out[0](mixed_attn_out)
-        attn_proj = block.attn.to_out[1](attn_proj)
-        x = residual_x + post_state["gate_msa"].unsqueeze(1).tanh() * block.norm2(attn_proj)
-        mlp_input = block.ffn_norm1(x) * (1 + post_state["scale_mlp"].unsqueeze(1))
-        mlp_output = block.feed_forward(mlp_input)
-        return x + post_state["gate_mlp"].unsqueeze(1).tanh() * block.ffn_norm2(mlp_output)
-
     def _apply_expert_post_block(
         self,
         block,
@@ -413,8 +215,6 @@ class MoT(nn.Module):
         post_state: dict,
         context_payload: Optional[dict],
     ) -> torch.Tensor:
-        if self.block_protocol == "omnigen2":
-            return self._apply_post_omnigen2(block, residual_x, mixed_attn_out, post_state)
         return self._apply_post_wan22(block, residual_x, mixed_attn_out, post_state, context_payload)
 
     def _apply_post_with_optional_checkpoint(
@@ -426,46 +226,28 @@ class MoT(nn.Module):
         mixed_slice: torch.Tensor,
         context_payload: Optional[dict],
     ) -> torch.Tensor:
-        if self.block_protocol == "wan22":
-            def _post_fn(_mixed, _x, gate_msa, shift_mlp, scale_mlp, gate_mlp):
-                return self._apply_expert_post_block(
-                    block,
-                    _x,
-                    _mixed,
-                    {
-                        "gate_msa": gate_msa,
-                        "shift_mlp": shift_mlp,
-                        "scale_mlp": scale_mlp,
-                        "gate_mlp": gate_mlp,
-                    },
-                    context_payload,
-                )
-
-            args = (
-                mixed_slice,
-                residual_x,
-                post_state["gate_msa"],
-                post_state["shift_mlp"],
-                post_state["scale_mlp"],
-                post_state["gate_mlp"],
+        def _post_fn(_mixed, _x, gate_msa, shift_mlp, scale_mlp, gate_mlp):
+            return self._apply_expert_post_block(
+                block,
+                _x,
+                _mixed,
+                {
+                    "gate_msa": gate_msa,
+                    "shift_mlp": shift_mlp,
+                    "scale_mlp": scale_mlp,
+                    "gate_mlp": gate_mlp,
+                },
+                context_payload,
             )
-        else:
-            def _post_fn(_mixed, _x, gate_msa, scale_mlp, gate_mlp):
-                return self._apply_expert_post_block(
-                    block,
-                    _x,
-                    _mixed,
-                    {"gate_msa": gate_msa, "scale_mlp": scale_mlp, "gate_mlp": gate_mlp},
-                    context_payload,
-                )
 
-            args = (
-                mixed_slice,
-                residual_x,
-                post_state["gate_msa"],
-                post_state["scale_mlp"],
-                post_state["gate_mlp"],
-            )
+        args = (
+            mixed_slice,
+            residual_x,
+            post_state["gate_msa"],
+            post_state["shift_mlp"],
+            post_state["scale_mlp"],
+            post_state["gate_mlp"],
+        )
 
         if use_gradient_checkpointing and self.training:
             return torch.utils.checkpoint.checkpoint(_post_fn, *args, use_reentrant=False)
@@ -484,37 +266,6 @@ class MoT(nn.Module):
         q, k = attn.norm(q, k, v)
         q, k = apply_rope(q, k, pe)
         return self._yak_flatten_heads(q), self._yak_flatten_heads(k), self._yak_flatten_heads(v)
-
-    def _yak_attn_kv(
-        self,
-        attn,
-        x: torch.Tensor,
-        pe: torch.Tensor,
-    ) -> tuple[torch.Tensor, torch.Tensor]:
-        """Evaluate only the K/V rows of a Yak ``SelfAttention`` QKV."""
-
-        ensure_ovis_u1_remote_code_importable()
-        from ovis_u1_hf.modeling_yak import apply_rope
-
-        hidden_size = self.num_heads * self.attn_head_dim
-        bias = attn.qkv.bias
-        kv = F.linear(
-            x,
-            attn.qkv.weight[hidden_size : 3 * hidden_size],
-            None if bias is None else bias[hidden_size : 3 * hidden_size],
-        )
-        batch_size, seq_len = x.shape[:2]
-        kv = kv.view(
-            batch_size,
-            seq_len,
-            2,
-            self.num_heads,
-            self.attn_head_dim,
-        )
-        k, v = kv.permute(2, 0, 3, 1, 4)
-        k = attn.norm.key_norm(k).to(v)
-        _, k = apply_rope(k, k, pe)
-        return self._yak_flatten_heads(k), self._yak_flatten_heads(v)
 
     def _yak_single_io(self, block, x: torch.Tensor, vec: torch.Tensor, pe: torch.Tensor) -> dict:
         ensure_ovis_u1_remote_code_importable()
@@ -536,51 +287,6 @@ class MoT(nn.Module):
             "gate": mod.gate,
             "residual_x": x,
         }
-
-    def _yak_single_kv(
-        self,
-        block,
-        x: torch.Tensor,
-        vec: torch.Tensor,
-        pe: torch.Tensor,
-    ) -> tuple[torch.Tensor, torch.Tensor]:
-        """Build only K/V for a static Yak-style prefix.
-
-        ``SingleStreamBlock.linear1`` jointly stores QKV and MLP weights.  The
-        direct-SSL action path never updates or queries the visual/text prefix,
-        so evaluating the Q and MLP slices would be pure overhead.  Slicing the
-        pretrained linear weights is mathematically identical for K/V while
-        avoiding those unused projections.
-        """
-
-        ensure_ovis_u1_remote_code_importable()
-        from ovis_u1_hf.modeling_yak import apply_rope
-
-        mod, _ = block.modulation(vec)
-        x_mod = (1 + mod.scale) * block.pre_norm(x) + mod.shift
-        hidden_size = int(block.hidden_size)
-        bias = block.linear1.bias
-        kv = F.linear(
-            x_mod,
-            block.linear1.weight[hidden_size : 3 * hidden_size],
-            (
-                None
-                if bias is None
-                else bias[hidden_size : 3 * hidden_size]
-            ),
-        )
-        batch_size, seq_len = x.shape[:2]
-        kv = kv.view(
-            batch_size,
-            seq_len,
-            2,
-            self.num_heads,
-            self.attn_head_dim,
-        )
-        k, v = kv.permute(2, 0, 3, 1, 4)
-        k = block.norm.key_norm(k).to(v)
-        _, k = apply_rope(k, k, pe)
-        return self._yak_flatten_heads(k), self._yak_flatten_heads(v)
 
     @staticmethod
     def _yak_single_post(block, mixed_attn_out: torch.Tensor, state: dict) -> torch.Tensor:
@@ -903,55 +609,21 @@ class MoT(nn.Module):
             return mask[:, :, video_seq_len:total_seq_len, :total_seq_len]
 
         double_mask = _action_mask(attention_mask["double_joint"])
-        capture = getattr(self, "action_attention_capture", None)
         for layer_idx, cache in enumerate(video_kv_cache["double"]):
             block = action_expert.double_blocks[layer_idx]
             state = block.prepare_qkv(action, action_pe, action_t_mod["double_img"])
             k_cat = torch.cat([cache["k"].to(dtype=state["k"].dtype), state["k"]], dim=1)
             v_cat = torch.cat([cache["v"].to(dtype=state["v"].dtype), state["v"]], dim=1)
-            if capture is not None and capture.should_capture(layer_idx):
-                mixed, attn_probs = self._mixed_attention(
-                    state["q"],
-                    k_cat,
-                    v_cat,
-                    double_mask,
-                    return_attn_probs=True,
-                )
-                capture.update(
-                    attn_probs,
-                    layer_idx=layer_idx,
-                    block_type="flux2_double",
-                    prefix_len=video_seq_len,
-                    action_len=action_seq_len,
-                )
-            else:
-                mixed = self._mixed_attention(state["q"], k_cat, v_cat, double_mask)
+            mixed = self._mixed_attention(state["q"], k_cat, v_cat, double_mask)
             action = block.apply_post(mixed, state)
 
         single_mask = _action_mask(attention_mask["single"])
         for layer_idx, cache in enumerate(video_kv_cache["single"]):
             block = action_expert.single_blocks[layer_idx]
             state = block.prepare_qkv(action, action_pe, action_t_mod["single"])
-            global_layer_idx = int(len(video_kv_cache["double"])) + int(layer_idx)
             k_cat = torch.cat([cache["k"].to(dtype=state["k"].dtype), state["k"]], dim=1)
             v_cat = torch.cat([cache["v"].to(dtype=state["v"].dtype), state["v"]], dim=1)
-            if capture is not None and capture.should_capture(global_layer_idx):
-                mixed, attn_probs = self._mixed_attention(
-                    state["q"],
-                    k_cat,
-                    v_cat,
-                    single_mask,
-                    return_attn_probs=True,
-                )
-                capture.update(
-                    attn_probs,
-                    layer_idx=global_layer_idx,
-                    block_type="flux2_single",
-                    prefix_len=video_seq_len,
-                    action_len=action_seq_len,
-                )
-            else:
-                mixed = self._mixed_attention(state["q"], k_cat, v_cat, single_mask)
+            mixed = self._mixed_attention(state["q"], k_cat, v_cat, single_mask)
             action = block.apply_post(mixed, state)
         return action
 
@@ -1152,228 +824,6 @@ class MoT(nn.Module):
                 "img": video_stream[:, txt.shape[1] :],
             },
         }
-
-    def prefill_yak_direct_prefix_cache(
-        self,
-        prefix_tokens: dict[str, torch.Tensor],
-        prefix_freqs: dict[str, torch.Tensor],
-        prefix_t_mod: torch.Tensor,
-        *,
-        image_layer_tokens: Optional[tuple[torch.Tensor, ...]] = None,
-        action_layer_map: Optional[list[int]] = None,
-    ) -> dict[str, object]:
-        """Project DINO/text prefixes with pretrained ActionDiTYak weights.
-
-        With ``image_layer_tokens=None`` every action block reads the same
-        final DINO state (the static ablation).  Otherwise ``action_layer_map``
-        selects one of DINO's native intermediate states for each ActionDiTYak
-        block.  In both modes no Yak video transformer block executes.
-        """
-
-        if self.block_protocol != "yak":
-            raise ValueError(
-                "`prefill_yak_direct_prefix_cache` requires block_protocol='yak'."
-            )
-        if "action" not in self.mixtures:
-            raise ValueError("The direct Yak prefix path requires an action expert.")
-        action_expert = self.mixtures["action"]
-        txt = prefix_tokens["txt"]
-        img = prefix_tokens["img"]
-        txt_pe = prefix_freqs["txt"]
-        img_pe = prefix_freqs["img"]
-        total_action_layers = len(action_expert.blocks)
-        if image_layer_tokens is None:
-            selected_images = [img] * total_action_layers
-            resolved_layer_map: list[int] = []
-            fusion_type = "direct_static_kv"
-        else:
-            if action_layer_map is None:
-                raise ValueError(
-                    "Layerwise DINO prefix fusion requires `action_layer_map`."
-                )
-            if len(action_layer_map) != total_action_layers:
-                raise ValueError(
-                    "DINO/action layer map length mismatch: "
-                    f"expected {total_action_layers}, got {len(action_layer_map)}."
-                )
-            if not image_layer_tokens:
-                raise ValueError("DINO hidden-state tuple cannot be empty.")
-            resolved_layer_map = [int(index) for index in action_layer_map]
-            if any(
-                index < 0 or index >= len(image_layer_tokens)
-                for index in resolved_layer_map
-            ):
-                raise ValueError(
-                    "DINO/action layer map references an unavailable hidden "
-                    f"state: map={resolved_layer_map}, depth={len(image_layer_tokens)}."
-                )
-            selected_images = [
-                image_layer_tokens[index] for index in resolved_layer_map
-            ]
-            invalid_shapes = [
-                (layer_idx, tuple(layer_img.shape))
-                for layer_idx, layer_img in enumerate(selected_images)
-                if tuple(layer_img.shape) != tuple(img.shape)
-            ]
-            if invalid_shapes:
-                raise ValueError(
-                    "Layerwise DINO token shape mismatch: "
-                    f"reference={tuple(img.shape)} invalid={invalid_shapes}."
-                )
-            fusion_type = "direct_layerwise_kv"
-
-        double_cache = []
-        for layer_idx, block in enumerate(action_expert.double_blocks):
-            layer_img = selected_images[layer_idx]
-            prefix_mod1, _, prefix_mod3 = block.img_mod(prefix_t_mod)
-            txt_mod1, _ = block.txt_mod(prefix_t_mod)
-            txt_joint_in = (
-                (1 + txt_mod1.scale) * block.txt_norm1(txt)
-                + txt_mod1.shift
-            )
-            txt_k, txt_v = self._yak_attn_kv(
-                block.txt_attn,
-                txt_joint_in,
-                txt_pe,
-            )
-            img_norm = block.img_norm1(layer_img)
-            img_joint_in = (
-                (1 + prefix_mod1.scale) * img_norm + prefix_mod1.shift
-            )
-            img_k, img_v = self._yak_attn_kv(
-                block.img_attn,
-                img_joint_in,
-                img_pe,
-            )
-
-            img_self_in = (1 + prefix_mod3.scale) * img_norm + prefix_mod3.shift
-            image_k, image_v = self._yak_attn_kv(
-                block.img_self_attn,
-                img_self_in,
-                img_pe,
-            )
-            double_cache.append(
-                {
-                    "joint_k": torch.cat([txt_k, img_k], dim=1),
-                    "joint_v": torch.cat([txt_v, img_v], dim=1),
-                    "image_k": image_k,
-                    "image_v": image_v,
-                }
-            )
-
-        single_cache = []
-        double_depth = len(action_expert.double_blocks)
-        for single_idx, block in enumerate(action_expert.single_blocks):
-            layer_img = selected_images[double_depth + single_idx]
-            prefix = torch.cat([txt, layer_img], dim=1)
-            prefix_pe = torch.cat([txt_pe, img_pe], dim=2)
-            k, v = self._yak_single_kv(
-                block,
-                prefix,
-                prefix_t_mod,
-                prefix_pe,
-            )
-            single_cache.append({"k": k, "v": v})
-
-        return {
-            "double": double_cache,
-            "single": single_cache,
-            "txt_len": int(txt.shape[1]),
-            "img_len": int(img.shape[1]),
-            "fusion_type": fusion_type,
-            "action_layer_map": resolved_layer_map,
-        }
-
-    def forward_yak_action_with_direct_prefix_cache(
-        self,
-        action_tokens: torch.Tensor,
-        action_ids: torch.Tensor,
-        action_t_mod: torch.Tensor,
-        prefix_kv_cache: dict[str, object],
-        attention_mask: dict[str, torch.Tensor],
-    ) -> torch.Tensor:
-        """Run only ActionDiTYak blocks against cached static prefix K/V."""
-
-        if self.block_protocol != "yak":
-            raise ValueError(
-                "`forward_yak_action_with_direct_prefix_cache` requires "
-                "block_protocol='yak'."
-            )
-        if prefix_kv_cache.get("fusion_type") not in {
-            "direct_static_kv",
-            "direct_layerwise_kv",
-        }:
-            raise ValueError("Expected a direct DINO-prefix Yak K/V cache.")
-        video_expert = self.mixtures["video"]
-        action_expert = self.mixtures["action"]
-        action = action_tokens
-        action_pe = video_expert.transformer.pe_embedder(
-            action_ids.to(device=action.device, dtype=action.dtype)
-        )
-
-        if len(prefix_kv_cache["double"]) != len(action_expert.double_blocks):
-            raise ValueError("Direct prefix double-block cache depth mismatch.")
-        if len(prefix_kv_cache["single"]) != len(action_expert.single_blocks):
-            raise ValueError("Direct prefix single-block cache depth mismatch.")
-
-        for layer_idx, cache in enumerate(prefix_kv_cache["double"]):
-            block = action_expert.double_blocks[layer_idx]
-            action_mod1, action_mod2, action_mod3 = block.img_mod(action_t_mod)
-            action_norm = block.img_norm1(action)
-            action_joint_in = (
-                (1 + action_mod1.scale) * action_norm + action_mod1.shift
-            )
-            action_self_in = (
-                (1 + action_mod3.scale) * action_norm + action_mod3.shift
-            )
-            action_q, action_k, action_v = self._yak_qkv(
-                block.img_attn,
-                action_joint_in,
-                action_pe,
-            )
-            joint = self._mixed_attention(
-                action_q,
-                torch.cat([cache["joint_k"], action_k], dim=1),
-                torch.cat([cache["joint_v"], action_v], dim=1),
-                attention_mask["joint_double"],
-            )
-            action_self_q, action_self_k, action_self_v = self._yak_qkv(
-                block.img_self_attn,
-                action_self_in,
-                action_pe,
-            )
-            image_self = self._mixed_attention(
-                action_self_q,
-                torch.cat([cache["image_k"], action_self_k], dim=1),
-                torch.cat([cache["image_v"], action_self_v], dim=1),
-                attention_mask["image_double"],
-            )
-            action = action + action_mod1.gate * block.img_attn.proj(joint)
-            action = (
-                action
-                + action_mod3.gate * block.img_self_attn.proj(image_self)
-            )
-            action = action + action_mod2.gate * block.img_mlp(
-                (1 + action_mod2.scale) * block.img_norm2(action)
-                + action_mod2.shift
-            )
-
-        for layer_idx, cache in enumerate(prefix_kv_cache["single"]):
-            block = action_expert.single_blocks[layer_idx]
-            state = self._yak_single_io(
-                block,
-                action,
-                action_t_mod,
-                action_pe,
-            )
-            mixed = self._mixed_attention(
-                state["q"],
-                torch.cat([cache["k"], state["k"]], dim=1),
-                torch.cat([cache["v"], state["v"]], dim=1),
-                attention_mask["single"],
-            )
-            action = self._yak_single_post(block, mixed, state)
-        return action
 
     def forward_yak_video_only(
         self,
@@ -1605,29 +1055,12 @@ class MoT(nn.Module):
 
         expert = self.mixtures["action"]
         x = action_tokens
-        capture = getattr(self, "action_attention_capture", None)
         for layer_idx in range(self.num_layers):
             block = expert.blocks[layer_idx]
             built = self._build_expert_attention_io(expert, block, x, action_freqs, action_t_mod)
             k_cat = torch.cat([video_kv_cache[layer_idx]["k"], built["k"]], dim=1)
             v_cat = torch.cat([video_kv_cache[layer_idx]["v"], built["v"]], dim=1)
-            if capture is not None and capture.should_capture(layer_idx):
-                mixed, attn_probs = self._mixed_attention(
-                    built["q"],
-                    k_cat,
-                    v_cat,
-                    action_attention_mask,
-                    return_attn_probs=True,
-                )
-                capture.update(
-                    attn_probs,
-                    layer_idx=layer_idx,
-                    block_type=self.block_protocol,
-                    prefix_len=video_seq_len,
-                    action_len=action_seq_len,
-                )
-            else:
-                mixed = self._mixed_attention(built["q"], k_cat, v_cat, action_attention_mask)
+            mixed = self._mixed_attention(built["q"], k_cat, v_cat, action_attention_mask)
             x = self._apply_post_with_optional_checkpoint(
                 block=block,
                 residual_x=built["residual_x"],
@@ -1646,14 +1079,6 @@ class MoT(nn.Module):
         context_all: Dict[str, Optional[dict]],
         t_mod_all: Dict[str, torch.Tensor],
     ):
-        if self.block_protocol == "sana":
-            return self._forward_sana(
-                embeds_all=embeds_all,
-                attention_mask=attention_mask,
-                freqs_all=freqs_all,
-                context_all=context_all,
-                t_mod_all=t_mod_all,
-            )
         if self.block_protocol == "yak":
             return self._forward_yak(
                 embeds_all=embeds_all,

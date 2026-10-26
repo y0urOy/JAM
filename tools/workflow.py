@@ -98,6 +98,15 @@ def source_version(root):
         return {'commit': None, 'tracked_changes': None}
 
 
+# recipe fields that describe a run without changing what it trains or how it is evaluated;
+# 'environment' (a per-backbone environment profile) appears only in run.json files of earlier versions
+DESCRIPTIVE_RECIPE_KEYS = ('validation', 'protocol_source', 'provenance', 'environment')
+
+
+def scientific_spec(spec):
+    return {k: v for k, v in (spec or {}).items() if k not in DESCRIPTIVE_RECIPE_KEYS}
+
+
 def load_run(run_dir, all_recipes):
     root = absolute(run_dir)
     path = root / 'run.json'
@@ -107,7 +116,7 @@ def load_run(run_dir, all_recipes):
     name = record.get('recipe')
     if record.get('schema_version') != 1 or name not in all_recipes:
         raise ValueError(f'Unsupported run metadata: {path}')
-    if canonical_recipe_spec(record.get('recipe_spec')) != all_recipes[name]:
+    if scientific_spec(canonical_recipe_spec(record.get('recipe_spec'))) != scientific_spec(all_recipes[name]):
         raise ValueError('The recipe changed since training. Use the recorded source version or explicitly evaluate the original config.')
     for filename, expected in record.get('artifact_sha256', {}).items():
         if filename not in ('config.yaml', 'dataset_stats.json'):
@@ -118,7 +127,7 @@ def load_run(run_dir, all_recipes):
 
 
 def resolve_evaluation(args, all_recipes):
-    """Restore one training run's recipe, overrides and paired statistics."""
+    """Restore one training run's recipe, overrides and normalization statistics."""
     if args.run_dir:
         root = absolute(args.run_dir)
         record = load_run(root, all_recipes)
@@ -165,7 +174,7 @@ def begin_training(args, plan, recipe, path_roots, root):
     record = {
         'schema_version': 1, 'recipe': args.recipe, 'recipe_spec': recipe,
         'status': 'training', 'started_at': datetime.now(timezone.utc).isoformat(),
-        'source': source_version(root), 'environment': recipe['environment'],
+        'source': source_version(root),
         'paths': {key: str(path_roots[name]) for key, name in (
             ('data', 'data'), ('model', 'models'), ('cache', 'cache'))},
         'training_overrides': args.override, 'plan': plan,

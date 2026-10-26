@@ -1,7 +1,8 @@
 # @package _global_
 
 # LIBERO Ovis-U1 policy with the foresight objective of the Wan recipe (gen OFF).
-# Identical to libero_ovis_u1_jam except the model variant and:
+# Identical to the public Ovis-U1 LIBERO generation task except the model
+# variant and:
 #   eval_every: 0 (in-train recon eval is meaningless with the gen head untrained).
 defaults:
   - override /data: libero_omnigen2_pair
@@ -16,6 +17,9 @@ num_workers: 24
 prefetch_factor: 2
 persistent_workers: true
 learning_rate: 1e-4
+# Keep each AdamW parameter group below 2^31 elements, so ZeRO-1 on one GPU does not
+# step a single 2.2B-element partition.  The AdamW equations are unchanged.
+optimizer_max_group_numel: 1000000000
 num_epochs: 10
 max_steps: null
 log_every: 10

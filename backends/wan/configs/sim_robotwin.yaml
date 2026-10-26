@@ -2,7 +2,8 @@
 
 defaults:
   - train
-  - override /task: robotwin_uncond_3cam_384_1e-4
+  - override /task: robotwin_vae_direct_off12_3cam_384_1e-4
+  - override /hydra/job_logging: stdout
   - _self_
 
 ckpt: null
@@ -39,8 +40,8 @@ EVALUATION:
   eval_video_log: false
   cache_text_context: true
   text_context_cache_max_entries: 128
-  # Null preserves the official online expert seed filter. A manifest enables
-  # an explicitly labelled paired-ablation acceleration mode.
+  # Null keeps the official online expert seed filter. A manifest fixes the
+  # seeds and instructions instead.
   paired_manifest_path: null
 
   # Runtime inputs

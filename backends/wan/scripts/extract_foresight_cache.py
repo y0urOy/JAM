@@ -2,17 +2,21 @@
 
 Reuses the EXACT training code path (same hydra config, same dataset, same
 JAMWan.build_inputs VAE encode and the same target helpers) so cached targets
-equal what online training would compute. Historical ``encoder_hidden`` jobs
-cache full teacher states. A ``vae_direct`` task stores compact raw 192-D VAE
-patches and training applies the same fixed isometric 192->3072 lift.
+equal what online training would compute. A ``vae_direct`` task stores compact
+raw 192-D VAE patches of the configured future offsets, and training applies
+the same fixed isometric 192->3072 lift. ``extract.input_latent_only=true``
+instead caches the current-frame VAE latent that cached training feeds the
+policy.
 
 Run under the same hydra config as training, with extraction knobs added via `+`:
 
   python scripts/extract_foresight_cache.py \
-      task=robotwin_foresight_only_3cam_384_1e-4 \
+      task=robotwin_vae_direct_off12_3cam_384_1e-4 \
       '+extract.out_roots=[/path/to/artifacts/fs_cache_rt,./fs_cache_rt]' \
-      '+extract.layers=[16]' \
       +extract.batch_size=32 +extract.num_workers=40
+
+``extract.layers`` defaults to the only valid cache row, ``[0]``;
+``extract.offsets`` defaults to ``model.foresight.offsets``.
 
 Multi-rank: launch one process per GPU (mpirun); rank r takes shards r::world.
 Resumable: completed shards (final .bin+.idx present) are skipped.
@@ -41,7 +45,6 @@ from jam_wan.datasets.foresight_cache import (  # noqa: E402
     ShardWriter, pick_root, shard_name, write_meta,
 )
 from jam_wan.models.wan22.foresight import (  # noqa: E402
-    encode_foresight_hidden,
     normalize_foresight_target_type,
     patch_foresight_vae_latents,
 )
@@ -88,7 +91,7 @@ def main(cfg: DictConfig):
     if ex is None:
         raise SystemExit("pass extraction knobs via +extract.out_roots=[...] etc. (see module docstring)")
     out_roots = [Path(p) for p in ex.out_roots]
-    layers = sorted(int(x) for x in ex.layers)
+    layers = sorted(int(x) for x in ex.get("layers", [0]))
     batch_size = int(ex.get("batch_size", 16))
     num_workers = int(ex.get("num_workers", 24))
     shard_size = int(ex.get("shard_size", 1024))
@@ -100,7 +103,7 @@ def main(cfg: DictConfig):
             f"extract.source_split must be train or val, got {source_split!r}."
         )
     target_type = normalize_foresight_target_type(
-        cfg.model.foresight.get("target_type", "encoder_hidden")
+        cfg.model.foresight.get("target_type", None)
     )
     stored_offsets_cfg = ex.get("offsets", None)
     if stored_offsets_cfg is None:
@@ -117,17 +120,13 @@ def main(cfg: DictConfig):
                 f"Input-latent cache uses metadata layer [0], got layers={layers}."
             )
         stored_offsets = None
-    elif target_type == "vae_direct":
+    else:
         if layers != [0]:
             raise SystemExit(
                 f"VAE-direct cache uses metadata layer [0], got layers={layers}."
             )
         if not stored_offsets:
             raise SystemExit("VAE-direct compact cache requires non-empty extract.offsets.")
-    elif target_type != "encoder_hidden":
-        raise SystemExit(
-            f"Cache extraction supports encoder_hidden or vae_direct, got {target_type}."
-        )
 
     rank, world = _dist_rank_world()
     device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -161,27 +160,18 @@ def main(cfg: DictConfig):
         out_roots,
     )
 
-    # Full FastWAM exactly as in training: provides the VAE (build_inputs) and the
-    # frozen encoder copied from the PRETRAINED video expert. Ensure the model cfg
-    # has foresight enabled and no cache path (we are producing the cache).
+    # Full JAMWan exactly as in training: provides the frozen VAE (build_inputs).
+    # Ensure the model cfg has foresight enabled and no cache path (we are
+    # producing the cache).
     model_cfg = OmegaConf.to_container(cfg.model, resolve=True)
     fs = model_cfg.setdefault("foresight", {})
     if not fs.get("enabled", False):
         raise SystemExit("model config must have foresight.enabled=true for extraction")
     fs.pop("target_cache_roots", None)
+    # VAE-direct uses metadata layer0 and keeps the task's student layer (18).
     fs["encoder_layers"] = layers
-    # Historical hidden-state extraction uses matching student/teacher depths.
-    # VAE-direct uses metadata encoder layer0 but must retain a valid student
-    # Wan layer (the task's layer18); FastWAM rejects student layer0.
-    if target_type == "encoder_hidden":
-        fs["layers"] = layers
     model = instantiate(model_cfg, model_dtype=torch.bfloat16, device=device)
     model.eval()
-    encoder = model.foresight_encoder
-    if target_type == "encoder_hidden" and encoder is None:
-        raise RuntimeError("model built without a foresight encoder; cannot extract")
-    if target_type == "vae_direct" and encoder is not None:
-        raise RuntimeError("VAE-direct extraction must not instantiate a foresight encoder.")
 
     seq_len = dim = None
     shard_starts = list(range(0, n, shard_size))
@@ -266,20 +256,7 @@ def main(cfg: DictConfig):
                         )
                     else:
                         inputs = model.build_inputs(sample)
-                    if not input_latent_only and target_type == "encoder_hidden":
-                        per_layer = []
-                        for L in layers:
-                            enc_hidden, tpf = encode_foresight_hidden(
-                                encoder=encoder,
-                                clean_latents=inputs["input_latents"],
-                                context=inputs["context"],
-                                context_mask=inputs["context_mask"],
-                                capture_layer=L,
-                                fuse_vae_embedding_in_latents=inputs["fuse_vae_embedding_in_latents"],
-                            )
-                            per_layer.append(enc_hidden.to(torch.bfloat16).cpu())
-                        rec = torch.stack(per_layer, dim=1)  # [B, L, S, D]
-                    elif not input_latent_only:
+                    if not input_latent_only:
                         raw, tpf = patch_foresight_vae_latents(
                             inputs["input_latents"],
                             patch_size=model.video_expert.patch_size,
@@ -323,7 +300,7 @@ def main(cfg: DictConfig):
                             )
                         else:
                             meta_extra["tokens_per_frame"] = int(tpf)
-                        if not input_latent_only and target_type == "vae_direct":
+                        if not input_latent_only:
                             meta_extra.update(
                                 stored_offsets=stored_offsets,
                                 num_target_frames=num_target_frames,

@@ -1,0 +1,38 @@
+# The one environment of the ten JAM recipes: Python 3.10, PyTorch 2.7.1 and torchvision 0.22.1.
+# tools/bootstrap.py installs PyTorch first, then this file with constraints.txt, which pins every
+# installed version. The packages below the "Compiled against the installed PyTorch" line are installed
+# last, with --no-build-isolation.
+accelerate==1.12.0
+av==16.0.1
+boto3==1.35.99
+datasets==3.6.0
+diffusers==0.34.0
+einops==0.8.1
+fla-core==0.5.1
+gitpython==3.1.45
+huggingface-hub==1.23.0
+hydra-core==1.3.2
+imageio==2.37.0
+imageio-ffmpeg==0.6.0
+jsonlines==4.0.0
+matplotlib==3.10.3
+modelscope==1.34.0
+ninja==1.13.0
+numpy==1.26.4
+omegaconf==2.3.0
+opencv-python==4.10.0.84
+packaging==25.0
+pandas==2.2.3
+pillow==12.0.0
+pyarrow==23.0.0
+rich==14.2.0
+safetensors==0.8.0
+termcolor==2.5.0
+tqdm==4.66.5
+transformers==5.13.1
+wandb==0.23.1
+zstandard==0.25.0
+# Compiled against the installed PyTorch
+deepspeed==0.19.2
+flash-attn==2.8.3.post1
+causal-conv1d==1.6.2.post1

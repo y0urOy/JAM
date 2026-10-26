@@ -4,3 +4,8 @@ bddl==1.0.1
 gym==0.25.2
 easyDict
 cloudpickle
+future
+Wand
+# bddl imports future without declaring it; LIBERO-Plus imports skimage
+future
+scikit-image

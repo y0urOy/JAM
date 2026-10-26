@@ -1,6 +1,5 @@
 import hashlib
 import os
-import time
 from typing import Any, Optional, Sequence, Union
 
 import torch
@@ -44,7 +43,6 @@ class JAMPolicy(torch.nn.Module):
         loss_lambda_video: float = 1.0,
         loss_lambda_action: float = 1.0,
         stack: str = "wan22",
-        omnigen2_online_text_cache_compatible: bool = False,
         qwen_context_len: int = 128,
         trim_cached_text_padding: bool = False,
         pack_proprio_after_text: bool = False,
@@ -86,7 +84,7 @@ class JAMPolicy(torch.nn.Module):
             num_train_timesteps=action_num_train_timesteps,
             shift=action_infer_shift,
         )
-        # Optional aliases for consistency with Wan22Core naming.
+        # Optional aliases for the historical Wan scheduler attribute names.
         self.train_scheduler = self.train_video_scheduler
         self.infer_scheduler = self.infer_video_scheduler
 
@@ -95,7 +93,6 @@ class JAMPolicy(torch.nn.Module):
         self.loss_lambda_video = float(loss_lambda_video)
         self.loss_lambda_action = float(loss_lambda_action)
         self.stack = str(stack)
-        self.omnigen2_online_text_cache_compatible = bool(omnigen2_online_text_cache_compatible)
         self.qwen_context_len = int(qwen_context_len)
         # Opt-in because this shared class also serves non-FLUX stacks.  For a
         # right-padded cached FLUX context, removing columns that are masked in
@@ -133,7 +130,6 @@ class JAMPolicy(torch.nn.Module):
         loss_lambda_action: float = 1.0,
         mot_gqa_implementation: str = "repeat",
         mot_force_flash_attention: bool = False,
-        omnigen2_online_text_cache_compatible: bool = False,
         qwen_context_len: int = 128,
         pack_proprio_after_text: bool = False,
     ):
@@ -210,126 +206,6 @@ class JAMPolicy(torch.nn.Module):
         return model
 
     @classmethod
-    def from_omnigen2_pretrained(
-        cls,
-        omnigen2_model_path: str,
-        omnigen2_vae_path: str,
-        qwen_path: str | None,
-        action_dit_config: dict[str, Any],
-        action_dit_pretrained_path: str | None = None,
-        proprio_dim: Optional[int] = None,
-        transformer_subfolder: str | None = "transformer",
-        vae_subfolder: str | None = "vae",
-        load_text_encoder: bool = True,
-        device: str = "cuda",
-        torch_dtype: torch.dtype = torch.bfloat16,
-        mot_checkpoint_mixed_attn: bool = True,
-        video_train_shift: float = 5.0,
-        video_infer_shift: float = 5.0,
-        video_num_train_timesteps: int = 1000,
-        action_train_shift: float = 5.0,
-        action_infer_shift: float = 5.0,
-        action_num_train_timesteps: int = 1000,
-        loss_lambda_video: float = 1.0,
-        loss_lambda_action: float = 1.0,
-        mot_gqa_implementation: str = "repeat",
-        mot_force_flash_attention: bool = False,
-        omnigen2_online_text_cache_compatible: bool = False,
-        qwen_context_len: int = 128,
-        pack_proprio_after_text: bool = False,
-    ):
-        from diffusers.models.autoencoders.autoencoder_kl import AutoencoderKL
-        from transformers import AutoTokenizer, Qwen2_5_VLModel
-
-        from .action_dit_omnigen2 import ActionDiTOmnigen2
-        from .omnigen2_video_expert import OmniGen2VideoExpert
-
-        video_expert = OmniGen2VideoExpert.from_pretrained(
-            omnigen2_model_path,
-            subfolder=transformer_subfolder,
-            torch_dtype=torch_dtype,
-        )
-        action_cfg = dict(action_dit_config)
-        expected_action_shape = {
-            "num_layers": len(video_expert.blocks),
-            "num_heads": int(video_expert.num_heads),
-            "num_kv_heads": int(video_expert.num_kv_heads),
-            "attn_head_dim": int(video_expert.attn_head_dim),
-        }
-        for key, expected_value in expected_action_shape.items():
-            if key in action_cfg and int(action_cfg[key]) != int(expected_value):
-                logger.warning(
-                    "Overriding action_dit_config.%s=%s to match OmniGen2 video expert value %s.",
-                    key,
-                    action_cfg[key],
-                    expected_value,
-                )
-            action_cfg[key] = expected_value
-        action_expert = ActionDiTOmnigen2.from_pretrained(
-            action_dit_config=action_cfg,
-            action_dit_pretrained_path=action_dit_pretrained_path,
-            device=device,
-            torch_dtype=torch_dtype,
-        )
-        mot = MoT(
-            mixtures={"video": video_expert, "action": action_expert},
-            mot_checkpoint_mixed_attn=mot_checkpoint_mixed_attn,
-            gqa_implementation=mot_gqa_implementation,
-            force_flash_attention=mot_force_flash_attention,
-        )
-        vae = AutoencoderKL.from_pretrained(
-            omnigen2_vae_path,
-            subfolder=vae_subfolder,
-            torch_dtype=torch_dtype,
-        )
-        tokenizer = None
-        text_encoder = None
-        if load_text_encoder:
-            logger.warning(
-                "JAMPolicy-OmniGen2 is loading Qwen from `%s`. This follows OmniGen2 official training configs "
-                "using upstream Qwen2.5-VL-3B-Instruct. It is not yet confirmed whether the official "
-                "inference `mllm/` subfolder should be used instead for this JAMPolicy path.",
-                qwen_path,
-            )
-            if qwen_path is None:
-                raise ValueError("`qwen_path` is required when `load_text_encoder=True`.")
-            tokenizer = AutoTokenizer.from_pretrained(qwen_path)
-            tokenizer.padding_side = "right"
-            text_encoder = Qwen2_5_VLModel.from_pretrained(qwen_path, torch_dtype=torch_dtype)
-
-        model = cls(
-            video_expert=video_expert,
-            action_expert=action_expert,
-            mot=mot,
-            vae=vae,
-            text_encoder=text_encoder,
-            tokenizer=tokenizer,
-            text_dim=2048,
-            proprio_dim=proprio_dim,
-            device=device,
-            torch_dtype=torch_dtype,
-            video_train_shift=video_train_shift,
-            video_infer_shift=video_infer_shift,
-            video_num_train_timesteps=video_num_train_timesteps,
-            action_train_shift=action_train_shift,
-            action_infer_shift=action_infer_shift,
-            action_num_train_timesteps=action_num_train_timesteps,
-            loss_lambda_video=loss_lambda_video,
-            loss_lambda_action=loss_lambda_action,
-            stack="omnigen2",
-            omnigen2_online_text_cache_compatible=bool(omnigen2_online_text_cache_compatible),
-            qwen_context_len=int(qwen_context_len),
-            pack_proprio_after_text=bool(pack_proprio_after_text),
-        )
-        model.model_paths = {
-            "omnigen2_transformer": omnigen2_model_path,
-            "omnigen2_vae": omnigen2_vae_path,
-            "qwen": qwen_path,
-            "action_dit": action_dit_pretrained_path,
-        }
-        return model
-
-    @classmethod
     def from_ovis_u1_pretrained(
         cls,
         ovis_u1_model_path: str,
@@ -351,18 +227,23 @@ class JAMPolicy(torch.nn.Module):
         mot_gqa_implementation: str = "repeat",
         mot_force_flash_attention: bool = False,
     ):
-        from transformers import AutoModelForCausalLM
-
         from .action_dit_yak import ActionDiTYak
         from .mot import MoT
         from .ovis_u1_imports import ensure_ovis_u1_remote_code_importable
         from .ovis_u1_video_expert import OvisU1VideoExpert
 
         ensure_ovis_u1_remote_code_importable()
-        ovis_model = AutoModelForCausalLM.from_pretrained(
+        # Transformers 5 imports trust_remote_code files into content-hashed
+        # module directories, so AutoConfig and AutoModelForCausalLM would see two
+        # different `configuration_ovis_u1` modules and AutoModel could not map the
+        # config's Aimv2VisualTokenizerConfig. Load the vendored Ovis-U1 code, which
+        # is functionally equivalent to the checkpoint's own (see
+        # third_party/ovis_u1_hf/README.vendor.md), as one regular package instead.
+        from ovis_u1_hf.modeling_ovis_u1 import OvisU1
+
+        ovis_model = OvisU1.from_pretrained(
             ovis_u1_model_path,
             torch_dtype=torch_dtype,
-            trust_remote_code=True,
         ).eval()
         if load_condition_encoder:
             ovis_model = ovis_model.to(device=device, dtype=torch_dtype)
@@ -469,9 +350,6 @@ class JAMPolicy(torch.nn.Module):
         if key in {"klein-base-4b", "flux.2-klein-base-4b", "4b", "base-4b"}:
             text_dim = 7680
             default_qwen3_model_spec = "Qwen/Qwen3-4B"
-        elif key in {"klein-base-9b", "flux.2-klein-base-9b", "9b", "base-9b"}:
-            text_dim = 12288
-            default_qwen3_model_spec = "Qwen/Qwen3-8B"
         else:
             raise ValueError(f"Unsupported FLUX.2 Klein variant: {variant!r}")
 
@@ -597,136 +475,6 @@ class JAMPolicy(torch.nn.Module):
         model.save_trainable_only = bool(flux2_lora_config.get("save_trainable_only", False))
         return model
 
-    @classmethod
-    def from_dim_pretrained(
-        cls,
-        dim_model_path: str,
-        sana_config_path: str,
-        qwen_path: str,
-        action_dit_config: dict[str, Any],
-        action_dit_pretrained_path: str | None = None,
-        proprio_dim: Optional[int] = None,
-        max_condition_length: int = 8192,
-        with_latents_condition: bool = True,
-        load_mllm: bool = True,
-        qwen_attn_implementation: str = "flash_attention_2",
-        device: str = "cuda",
-        torch_dtype: torch.dtype = torch.bfloat16,
-        mot_checkpoint_mixed_attn: bool = True,
-        video_train_shift: float = 5.0,
-        video_infer_shift: float = 5.0,
-        video_num_train_timesteps: int = 1000,
-        action_train_shift: float = 5.0,
-        action_infer_shift: float = 5.0,
-        action_num_train_timesteps: int = 1000,
-        loss_lambda_video: float = 1.0,
-        loss_lambda_action: float = 1.0,
-        mot_gqa_implementation: str = "repeat",
-        mot_force_flash_attention: bool = False,
-        pack_proprio_after_text: bool = True,
-    ):
-        from safetensors.torch import load_file
-        from transformers import AutoProcessor
-
-        from .action_dit_sana import ActionDiTSana
-        from .dim_video_expert import DimVideoExpert
-        from .mot import MoT
-
-        from models.modeling_dim import Qwen2_5_VLForConditionalGeneration
-        from models.multimodal.multimodal_projector.builder import build_projector
-
-        video_expert = DimVideoExpert.from_pretrained(
-            dim_model_path=dim_model_path,
-            sana_config_path=sana_config_path,
-            max_condition_length=int(max_condition_length),
-            with_latents_condition=bool(with_latents_condition),
-            device=device,
-            torch_dtype=torch_dtype,
-        )
-        action_cfg = dict(action_dit_config)
-        expected_action_shape = {
-            "attn_dim": int(video_expert.hidden_dim),
-            "context_dim": int(video_expert.hidden_dim),
-            "num_heads": int(video_expert.num_heads),
-            "num_layers": len(video_expert.blocks),
-        }
-        for key, expected_value in expected_action_shape.items():
-            if key in action_cfg and int(action_cfg[key]) != int(expected_value):
-                logger.warning(
-                    "Overriding action_dit_config.%s=%s to match DIM/SANA value %s.",
-                    key,
-                    action_cfg[key],
-                    expected_value,
-                )
-            action_cfg[key] = expected_value
-        action_expert = ActionDiTSana.from_pretrained(
-            action_dit_config=action_cfg,
-            action_dit_pretrained_path=action_dit_pretrained_path,
-            device=device,
-            torch_dtype=torch_dtype,
-        )
-        mot = MoT(
-            mixtures={"video": video_expert, "action": action_expert},
-            mot_checkpoint_mixed_attn=mot_checkpoint_mixed_attn,
-            gqa_implementation=mot_gqa_implementation,
-            force_flash_attention=mot_force_flash_attention,
-        )
-        processor = AutoProcessor.from_pretrained(qwen_path, padding_side="left")
-        processor.tokenizer.padding_side = "left"
-        mllm = None
-        if load_mllm:
-            mllm = Qwen2_5_VLForConditionalGeneration.from_pretrained(
-                qwen_path,
-                torch_dtype=torch_dtype,
-                attn_implementation=qwen_attn_implementation,
-            ).eval()
-            for param in mllm.parameters():
-                param.requires_grad = False
-        projector = build_projector(proj_in=2048, proj_out=int(video_expert.caption_dim), projector_type="mlp2x_gelu")
-        ckpt = os.path.join(dim_model_path, "model.safetensors") if os.path.isdir(dim_model_path) else dim_model_path
-        state = load_file(ckpt)
-        projector_state = {k[len("projector.") :]: v for k, v in state.items() if k.startswith("projector.")}
-        missing, unexpected = projector.load_state_dict(projector_state, strict=False)
-        if missing:
-            logger.warning("DIM projector missing keys: %s", missing[:20])
-        if unexpected:
-            logger.warning("DIM projector unexpected keys: %s", unexpected[:20])
-        projector = projector.to(device=device, dtype=torch_dtype)
-
-        model = cls(
-            video_expert=video_expert,
-            action_expert=action_expert,
-            mot=mot,
-            vae=video_expert.vae,
-            text_encoder=mllm,
-            tokenizer=processor.tokenizer,
-            text_dim=int(video_expert.caption_dim),
-            proprio_dim=proprio_dim,
-            device=device,
-            torch_dtype=torch_dtype,
-            video_train_shift=video_train_shift,
-            video_infer_shift=video_infer_shift,
-            video_num_train_timesteps=video_num_train_timesteps,
-            action_train_shift=action_train_shift,
-            action_infer_shift=action_infer_shift,
-            action_num_train_timesteps=action_num_train_timesteps,
-            loss_lambda_video=loss_lambda_video,
-            loss_lambda_action=loss_lambda_action,
-            stack="dim",
-            pack_proprio_after_text=bool(pack_proprio_after_text),
-        )
-        model.dim_processor = processor
-        model.dim_projector = projector
-        model.dim_max_condition_length = int(max_condition_length)
-        model.dim_with_latents_condition = bool(with_latents_condition)
-        model.model_paths = {
-            "dim": dim_model_path,
-            "sana_config": sana_config_path,
-            "qwen": qwen_path,
-            "action_dit": action_dit_pretrained_path,
-        }
-        return model
-
     def to(self, *args, **kwargs):
         super().to(*args, **kwargs)
         self.mot.to(*args, **kwargs)
@@ -735,8 +483,6 @@ class JAMPolicy(torch.nn.Module):
                 self.text_encoder.to(*args, **kwargs)
             elif hasattr(self.text_encoder, "model") and hasattr(self.text_encoder.model, "to"):
                 self.text_encoder.model.to(*args, **kwargs)
-        if hasattr(self, "dim_projector"):
-            self.dim_projector.to(*args, **kwargs)
         self.vae.to(*args, **kwargs)
         return self
 
@@ -815,8 +561,9 @@ class JAMPolicy(torch.nn.Module):
         context_mask = context_mask.to(device=context.device, dtype=torch.bool)
         new_context = context.new_zeros(context.shape[0], context.shape[1] + 1, context.shape[2])
 
-        # OmniGen2 treats context_mask.sum() as a contiguous prefix length, so the
-        # proprio token must sit immediately after the valid text tokens.
+        # Packed text contexts treat context_mask.sum() as a contiguous prefix
+        # length, so the proprio token must sit immediately after the valid
+        # text tokens.
         valid_counts = context_mask.sum(dim=1)
         valid_rank = context_mask.cumsum(dim=1) - 1
         invalid_mask = ~context_mask
@@ -874,141 +621,6 @@ class JAMPolicy(torch.nn.Module):
             context_mask=context_mask,
             proprio=proprio.to(device=self.device, dtype=self.torch_dtype),
         )
-
-    def _configure_action_attention_capture(
-        self,
-        *,
-        condition_slice: slice | tuple[int, int] | list[int],
-        condition_grid: tuple[int, int],
-        prefix_len: int,
-        action_len: int,
-        metadata: Optional[dict[str, Any]] = None,
-    ) -> None:
-        capture = getattr(self.mot, "action_attention_capture", None)
-        if capture is None or not hasattr(capture, "configure"):
-            return
-        capture.configure(
-            condition_slice=condition_slice,
-            condition_grid=condition_grid,
-            prefix_len=prefix_len,
-            action_len=action_len,
-            metadata=metadata or {},
-        )
-
-    def _start_action_attention_capture_step(self, step_idx: int) -> None:
-        capture = getattr(self.mot, "action_attention_capture", None)
-        if capture is not None and hasattr(capture, "start_step"):
-            capture.start_step(int(step_idx))
-
-    @staticmethod
-    def _image_tensor_to_pil_list(image: torch.Tensor) -> list[Image.Image]:
-        if image.ndim != 4 or image.shape[1] != 3:
-            raise ValueError(f"`image` must be [B,3,H,W], got {tuple(image.shape)}")
-        image = image.detach().float().cpu()
-        if image.min() < 0:
-            image = (image + 1.0) * 0.5
-        image = image.clamp(0, 1)
-        arr = (image.permute(0, 2, 3, 1).numpy() * 255.0).round().astype("uint8")
-        return [Image.fromarray(item) for item in arr]
-
-    def _build_dim_user_labels(self, input_ids: torch.Tensor) -> torch.Tensor:
-        tokenizer = self.dim_processor.tokenizer
-        im_start_id = tokenizer("<|im_start|>").input_ids[0]
-        im_end_id = tokenizer("<|im_end|>").input_ids[0]
-        user_id = tokenizer("user").input_ids[0]
-        newline_id = tokenizer("\n").input_ids[0]
-        labels = torch.full_like(input_ids, -100, dtype=torch.long)
-        for b in range(input_ids.shape[0]):
-            user_begin, user_end = [], []
-            for idx in range(3, input_ids.shape[1]):
-                if (
-                    input_ids[b, idx - 3] == im_start_id
-                    and input_ids[b, idx - 2] == user_id
-                    and input_ids[b, idx - 1] == newline_id
-                ):
-                    user_begin.append(idx)
-                if input_ids[b, idx] == im_end_id and len(user_begin) == len(user_end) + 1:
-                    user_end.append(idx)
-            if len(user_begin) != len(user_end):
-                raise ValueError("DIM Qwen user span parse failed: begin/end counts mismatch.")
-            for start, end in zip(user_begin, user_end):
-                labels[b, start:end] = input_ids[b, start:end]
-        return labels
-
-    def _build_dim_messages(self, instruction: str | Sequence[str], image: torch.Tensor):
-        pil_images = self._image_tensor_to_pil_list(image)
-        if isinstance(instruction, str):
-            instructions = [instruction] * len(pil_images)
-        else:
-            instructions = list(instruction)
-        if len(instructions) != len(pil_images):
-            raise ValueError(f"Expected {len(pil_images)} DIM instructions, got {len(instructions)}.")
-        messages = []
-        for img, prompt in zip(pil_images, instructions):
-            messages.append(
-                [
-                    {
-                        "role": "user",
-                        "content": [
-                            {"type": "image", "image": img},
-                            {"type": "text", "text": str(prompt)},
-                        ],
-                    }
-                ]
-            )
-        return messages
-
-    def _prepare_dim_condition_from_batch(self, batch: dict[str, torch.Tensor]) -> tuple[torch.Tensor, torch.Tensor]:
-        if self.text_encoder is None or not hasattr(self, "dim_projector"):
-            raise ValueError("DIM online conditioning requires loaded Qwen MLLM and projector.")
-        batch = {k: (v.to(self.device) if isinstance(v, torch.Tensor) else v) for k, v in batch.items()}
-        with torch.no_grad():
-            outputs = self.text_encoder(
-                **batch,
-                output_hidden_states=True,
-                return_dict=True,
-            )
-            hidden = outputs.hidden_states[-1]
-        projected = self.dim_projector(hidden.to(dtype=self.torch_dtype))
-        user_labels = self._build_dim_user_labels(batch["input_ids"]).to(projected.device)
-        valid = (user_labels != -100) & batch["attention_mask"].to(device=projected.device, dtype=torch.bool)
-        max_len = int(getattr(self, "dim_max_condition_length", projected.shape[1]))
-        out = projected.new_zeros(projected.shape[0], max_len, projected.shape[-1])
-        mask = torch.zeros(projected.shape[0], max_len, device=projected.device, dtype=torch.bool)
-        for b in range(projected.shape[0]):
-            item = projected[b, valid[b]]
-            if item.shape[0] > max_len:
-                item = item[-max_len:]
-            out[b, : item.shape[0]] = item
-            mask[b, : item.shape[0]] = True
-        return out, mask
-
-    def _encode_dim_condition_online(
-        self,
-        instruction: str | Sequence[str],
-        image: torch.Tensor,
-    ) -> tuple[torch.Tensor, torch.Tensor]:
-        messages = self._build_dim_messages(instruction, image)
-        texts = [
-            self.dim_processor.apply_chat_template(msg, tokenize=False, add_generation_prompt=False)
-            for msg in messages
-        ]
-        pil_images = [msg[0]["content"][0]["image"] for msg in messages]
-        batch = self.dim_processor(
-            text=texts,
-            images=pil_images,
-            padding=True,
-            return_tensors="pt",
-        )
-        return self._prepare_dim_condition_from_batch(batch)
-
-    @torch.no_grad()
-    def _encode_dim_image_latents(self, image: torch.Tensor) -> torch.Tensor:
-        return self.video_expert.encode_image_latents(image.to(device=self.device, dtype=self.torch_dtype))
-
-    @torch.no_grad()
-    def _decode_dim_image_latents(self, latents: torch.Tensor) -> torch.Tensor:
-        return self.video_expert.decode_image_latents(latents)
 
     @torch.no_grad()
     def _encode_video_latents(self, video_tensor, tiled=False, tile_size=(30, 52), tile_stride=(15, 26)):
@@ -1166,175 +778,6 @@ class JAMPolicy(torch.nn.Module):
             "action_is_pad": action_is_pad,
             "action_dim_is_pad": action_dim_is_pad,
             "image_is_pad": image_is_pad,
-        }
-
-    @torch.no_grad()
-    def _encode_omnigen2_image_latents(self, image: torch.Tensor) -> torch.Tensor:
-        image = image.to(device=self.device, dtype=getattr(self.vae, "dtype", self.torch_dtype), non_blocking=True)
-        latent = self.vae.encode(image).latent_dist.sample()
-        if getattr(self.vae.config, "shift_factor", None) is not None:
-            latent = latent - self.vae.config.shift_factor
-        if getattr(self.vae.config, "scaling_factor", None) is not None:
-            latent = latent * self.vae.config.scaling_factor
-        return latent.to(dtype=self.torch_dtype)
-
-    @torch.no_grad()
-    def _decode_omnigen2_image_latents(self, latents: torch.Tensor) -> torch.Tensor:
-        z = latents.to(device=self.device, dtype=getattr(self.vae, "dtype", self.torch_dtype))
-        if getattr(self.vae.config, "scaling_factor", None) is not None:
-            z = z / self.vae.config.scaling_factor
-        if getattr(self.vae.config, "shift_factor", None) is not None:
-            z = z + self.vae.config.shift_factor
-        decoded = self.vae.decode(z)
-        image = decoded.sample if hasattr(decoded, "sample") else decoded[0]
-        return image.detach().float().clamp(-1, 1)
-
-    @torch.no_grad()
-    def _encode_omnigen2_text(self, sample) -> tuple[torch.Tensor, torch.Tensor]:
-        if "text_hidden_states" in sample and "text_attention_mask" in sample:
-            return (
-                sample["text_hidden_states"].to(device=self.device, dtype=self.torch_dtype, non_blocking=True),
-                sample["text_attention_mask"].to(device=self.device, dtype=torch.bool, non_blocking=True),
-            )
-        if "text_ids" in sample and "text_mask" in sample:
-            text_ids = sample["text_ids"].to(device=self.device, non_blocking=True)
-            text_mask = sample["text_mask"].to(device=self.device, dtype=torch.bool, non_blocking=True)
-        else:
-            if self.text_encoder is None or self.tokenizer is None:
-                raise ValueError(
-                    "OmniGen2 stack needs precomputed text_hidden_states/text_attention_mask "
-                    "or a loaded Qwen tokenizer/text_encoder."
-                )
-            instruction = sample.get("instruction")
-            if instruction is None:
-                raise ValueError("OmniGen2 stack sample must include `instruction` when text is not precomputed.")
-            if self.omnigen2_online_text_cache_compatible:
-                encoded = self.tokenizer(
-                    instruction,
-                    padding="max_length",
-                    truncation=True,
-                    max_length=self.qwen_context_len,
-                    return_tensors="pt",
-                )
-            else:
-                encoded = self.tokenizer(
-                    instruction,
-                    padding=True,
-                    return_tensors="pt",
-                )
-            text_ids = encoded.input_ids.to(self.device)
-            text_mask = encoded.attention_mask.to(self.device, dtype=torch.bool)
-        text_hidden_states = self.text_encoder(
-            input_ids=text_ids,
-            attention_mask=text_mask,
-            output_hidden_states=False,
-        ).last_hidden_state
-        return text_hidden_states.to(dtype=self.torch_dtype), text_mask
-
-    @torch.no_grad()
-    def _prepare_omnigen2_infer_text(
-        self,
-        prompt: Optional[str],
-        context: Optional[torch.Tensor],
-        context_mask: Optional[torch.Tensor],
-    ) -> tuple[torch.Tensor, torch.Tensor]:
-        use_prompt = prompt is not None
-        use_context = context is not None or context_mask is not None
-        if use_prompt and use_context:
-            raise ValueError("`prompt` and `context/context_mask` are mutually exclusive.")
-        if not use_prompt and not use_context:
-            raise ValueError("Either `prompt` or both `context/context_mask` must be provided.")
-        if use_prompt:
-            return self._encode_omnigen2_text({"instruction": [prompt]})
-        if context is None or context_mask is None:
-            raise ValueError("`context` and `context_mask` must be both provided together.")
-        if context.ndim == 2:
-            context = context.unsqueeze(0)
-        if context_mask.ndim == 1:
-            context_mask = context_mask.unsqueeze(0)
-        if context.ndim != 3 or context_mask.ndim != 2:
-            raise ValueError(
-                f"`context/context_mask` must be [B,L,D]/[B,L], got {tuple(context.shape)} and {tuple(context_mask.shape)}"
-            )
-        return (
-            context.to(device=self.device, dtype=self.torch_dtype, non_blocking=True),
-            context_mask.to(device=self.device, dtype=torch.bool, non_blocking=True),
-        )
-
-    def build_inputs_omnigen2(self, sample, tiled: bool = False):
-        debug_forward = (
-            int(os.environ.get("JAM_DEBUG_OMNIGEN2_FORWARD_EVERY", "0") or "0") > 0
-            or float(os.environ.get("JAM_DEBUG_OMNIGEN2_FORWARD_THRESHOLD", "0") or "0") > 0
-        )
-        build_profile: list[tuple[str, float]] = []
-
-        def _sync_and_mark(name: str, start_time: float) -> float:
-            if self.device.type == "cuda":
-                torch.cuda.synchronize(self.device)
-            now = time.perf_counter()
-            build_profile.append((name, now - start_time))
-            return now
-
-        t0 = time.perf_counter()
-        video = sample.get("video")
-        if "target_latent" in sample:
-            target_latent = sample["target_latent"].to(device=self.device, dtype=self.torch_dtype, non_blocking=True)
-        else:
-            next_frame = sample.get("next_frame", sample.get("target_image"))
-            if next_frame is None and video is not None:
-                if video.ndim != 5:
-                    raise ValueError(f"`sample['video']` must be [B,C,T,H,W], got {tuple(video.shape)}")
-                next_frame = video[:, :, -1]
-            if next_frame is None:
-                raise ValueError("OmniGen2 stack sample requires `next_frame`, `target_image`, `video`, or `target_latent`.")
-            target_latent = self._encode_omnigen2_image_latents(next_frame)
-        if debug_forward:
-            t0 = _sync_and_mark("build.target_latent", t0)
-
-        if "ref_image_latents" in sample:
-            ref_image_latents = sample["ref_image_latents"]
-            if isinstance(ref_image_latents, torch.Tensor):
-                ref_image_latents = ref_image_latents.to(device=self.device, dtype=self.torch_dtype, non_blocking=True)
-        else:
-            current_frame = sample.get("current_frame", sample.get("input_image"))
-            if current_frame is None and video is not None:
-                if video.ndim != 5:
-                    raise ValueError(f"`sample['video']` must be [B,C,T,H,W], got {tuple(video.shape)}")
-                current_frame = video[:, :, 0]
-            if current_frame is None:
-                raise ValueError("OmniGen2 stack sample requires `current_frame`, `input_image`, `video`, or `ref_image_latents`.")
-            ref_image_latents = self._encode_omnigen2_image_latents(current_frame)
-        if debug_forward:
-            t0 = _sync_and_mark("build.ref_latent", t0)
-
-        text_hidden_states, text_attention_mask = self._encode_omnigen2_text(sample)
-        if self.proprio_encoder is not None:
-            text_hidden_states, text_attention_mask = self._append_proprio_to_context_if_enabled(
-                context=text_hidden_states,
-                context_mask=text_attention_mask,
-                proprio=sample.get("proprio"),
-                source="OmniGen2 training sample",
-            )
-        if debug_forward:
-            t0 = _sync_and_mark("build.text_to_device", t0)
-        action = sample["action"].to(device=self.device, dtype=self.torch_dtype, non_blocking=True)
-        action_is_pad = sample.get("action_is_pad")
-        if action_is_pad is not None:
-            action_is_pad = action_is_pad.to(device=self.device, dtype=torch.bool, non_blocking=True)
-        action_dim_is_pad = sample.get("action_dim_is_pad")
-        if action_dim_is_pad is not None:
-            action_dim_is_pad = action_dim_is_pad.to(device=self.device, dtype=torch.bool, non_blocking=True)
-        if debug_forward:
-            _sync_and_mark("build.action_to_device", t0)
-            self._last_omnigen2_build_profile = build_profile
-        return {
-            "target_latent": target_latent,
-            "ref_image_latents": ref_image_latents,
-            "text_hidden_states": text_hidden_states,
-            "text_attention_mask": text_attention_mask,
-            "action": action,
-            "action_is_pad": action_is_pad,
-            "action_dim_is_pad": action_dim_is_pad,
         }
 
     @torch.no_grad()
@@ -1582,9 +1025,9 @@ class JAMPolicy(torch.nn.Module):
     ) -> tuple[torch.Tensor, torch.Tensor]:
         """Load one frozen FLUX.2 Qwen3-4B instruction context.
 
-        This path is deliberately limited to the opt-in DINO-native language
-        ablation.  Qwen sees the instruction only; current images continue to
-        enter exclusively through the trainable DINOv2 visual stream.
+        This is the cached Qwen3-4B text path used by the DINOv2 recipes.  Qwen
+        sees the instruction only; current images continue to enter exclusively
+        through the trainable DINOv2 visual stream.
         """
 
         source = str(
@@ -1716,15 +1159,6 @@ class JAMPolicy(torch.nn.Module):
         if instruction is not None:
             if condition_image is None:
                 raise ValueError("Ovis-U1 online condition encoding requires the condition/input image.")
-            # IMAGEWAM_COND_CACHE_EMULATE=1 (measurement only): reuse the first batch's prompt
-            # context instead of running the frozen visual tokenizer and language model again.
-            if os.environ.get("JAM_COND_CACHE_EMULATE") == "1":
-                cached = getattr(self, "_cond_emulate_context", None)
-                if cached is not None and int(cached[0].shape[0]) == int(condition_image.shape[0]):
-                    return cached
-                out = self._encode_ovis_u1_condition_online(instruction, condition_image)
-                self._cond_emulate_context = tuple(t.detach() for t in out)
-                return out
             return self._encode_ovis_u1_condition_online(instruction, condition_image)
         raise ValueError(
             "Ovis-U1 training currently requires precomputed `text_hidden_states` "
@@ -1775,39 +1209,16 @@ class JAMPolicy(torch.nn.Module):
         )
 
     def _build_inputs_ovis_external_ssl(self, sample):
-        """Build action-policy inputs from a trainable dense SSL student.
+        """Build action-policy inputs for the native DINO student.
 
         The student sees only the current endpoint.  The raw future endpoint is
         retained for the unregistered frozen SSL teacher and is never passed to
-        the student/Yak/action path.
+        the student/action path.
         """
-
-        from .ovis_u1_video_expert import OvisU1VideoExpert
 
         video = sample.get("video")
         current_frame = sample.get("current_frame", sample.get("input_image"))
         future_frame = sample.get("next_frame", sample.get("target_image"))
-        ssl_fusion_type = str(
-            getattr(
-                self,
-                "external_ssl_action_fusion_type",
-                "layerwise_mot",
-            )
-        )
-        native_videomae_action = (
-            ssl_fusion_type == "native_videomae12_mot"
-        )
-        videomae_clip_teacher = (
-            native_videomae_action
-            and str(
-                getattr(
-                    self,
-                    "external_ssl_teacher_input",
-                    "real_future_clip_t1_to_t16_last_tubelet",
-                )
-            )
-            == "real_future_clip_t1_to_t16_last_tubelet"
-        )
         if video is not None:
             if video.ndim != 5:
                 raise ValueError(
@@ -1815,16 +1226,7 @@ class JAMPolicy(torch.nn.Module):
                 )
             if current_frame is None:
                 current_frame = video[:, :, 0]
-            if videomae_clip_teacher:
-                expected_frames = 17
-                if int(video.shape[2]) != expected_frames:
-                    raise ValueError(
-                        "Native VideoMAE policy requires current t plus the "
-                        "real future clip t+1...t+16: expected T=17, got "
-                        f"{tuple(video.shape)}."
-                    )
-                future_frame = video[:, :, 1:]
-            elif future_frame is None:
+            if future_frame is None:
                 future_frame = video[:, :, -1]
         if current_frame is None or future_frame is None:
             raise ValueError(
@@ -1834,86 +1236,30 @@ class JAMPolicy(torch.nn.Module):
         ssl_student = getattr(self.mot, "ssl_student", None)
         if ssl_student is None:
             raise RuntimeError("External SSL mode is missing the registered SSL student.")
-        student_layer_features = None
-        native_dino_action = ssl_fusion_type in {
-            "native_dino12_mot",
-            "native_dino24_mot",
-            "native_dinov2_large24_mot",
-            "native_videomae12_mot",
-        }
-        if native_dino_action:
-            if current_frame.ndim not in (3, 4):
-                raise ValueError(
-                    "Native DINO action input must be [B,3,H,W] or [3,H,W], "
-                    f"got {tuple(current_frame.shape)}."
-                )
-            batch_size = 1 if current_frame.ndim == 3 else int(current_frame.shape[0])
-            # Native DINO performs its single visual pass together with prefix
-            # K/V construction inside the policy forward.  A zero-length
-            # placeholder preserves the common batch/device contract here and
-            # prevents the old builder from running DINO a second time.
-            student_features = torch.empty(
-                batch_size,
-                0,
-                int(self.external_ssl_hidden_size),
-                device=self.device,
-                dtype=self.torch_dtype,
+        if current_frame.ndim not in (3, 4):
+            raise ValueError(
+                "Native DINO action input must be [B,3,H,W] or [3,H,W], "
+                f"got {tuple(current_frame.shape)}."
             )
-        elif ssl_fusion_type == "direct_layerwise_kv":
-            student_features, student_layer_features = ssl_student(
-                current_frame,
-                output_hidden_states=True,
-            )
-        else:
-            student_features = ssl_student(current_frame)
-        if student_features.ndim != 3:
-            raise RuntimeError(
-                f"SSL student must return [B,N,D], got {tuple(student_features.shape)}."
-            )
-        batch_size = int(student_features.shape[0])
-        grid_h = int(self.external_ssl_grid_size)
-        grid_w = grid_h * int(self.external_ssl_num_views)
-        expected_tokens = grid_h * grid_w
-        if not native_dino_action and int(student_features.shape[1]) != expected_tokens:
-            raise RuntimeError(
-                "SSL dense-grid mismatch: "
-                f"expected {expected_tokens} tokens ({grid_h}x{grid_w}), "
-                f"got {student_features.shape[1]}."
-            )
-        if student_layer_features is not None:
-            expected_layers = int(self.external_ssl_num_layers)
-            if len(student_layer_features) != expected_layers:
-                raise RuntimeError(
-                    "SSL hidden-state depth mismatch: "
-                    f"expected {expected_layers}, got {len(student_layer_features)}."
-                )
-            invalid_shapes = [
-                (layer_idx, tuple(features.shape))
-                for layer_idx, features in enumerate(student_layer_features)
-                if tuple(features.shape) != tuple(student_features.shape)
-            ]
-            if invalid_shapes:
-                raise RuntimeError(
-                    "SSL hidden-state dense-token mismatch: "
-                    f"final={tuple(student_features.shape)} invalid={invalid_shapes}."
-                )
-        if native_dino_action:
-            ref_img_ids = torch.empty(
-                batch_size,
-                0,
-                3,
-                device=student_features.device,
-                dtype=student_features.dtype,
-            )
-        else:
-            ref_img_ids = OvisU1VideoExpert.build_img_ids(
-                batch_size=batch_size,
-                token_height=grid_h,
-                token_width=grid_w,
-                time_value=1.0,
-                device=student_features.device,
-                dtype=student_features.dtype,
-            )
+        batch_size = 1 if current_frame.ndim == 3 else int(current_frame.shape[0])
+        # Native DINO performs its single visual pass together with prefix
+        # K/V construction inside the policy forward.  A zero-length
+        # placeholder preserves the common batch/device contract here and
+        # prevents the builder from running DINO a second time.
+        student_features = torch.empty(
+            batch_size,
+            0,
+            int(self.external_ssl_hidden_size),
+            device=self.device,
+            dtype=self.torch_dtype,
+        )
+        ref_img_ids = torch.empty(
+            batch_size,
+            0,
+            3,
+            device=student_features.device,
+            dtype=student_features.dtype,
+        )
         empty_target = student_features[:, :0]
         empty_target_ids = ref_img_ids[:, :0]
 
@@ -1966,15 +1312,7 @@ class JAMPolicy(torch.nn.Module):
                 raise ValueError(
                     f"`image_is_pad` must be [B,T], got {tuple(image_is_pad.shape)}."
                 )
-            if videomae_clip_teacher:
-                if int(image_is_pad.shape[1]) != 17:
-                    raise ValueError(
-                        "Native VideoMAE image padding mask must cover "
-                        f"t...t+16, got {tuple(image_is_pad.shape)}."
-                    )
-                future_valid = ~image_is_pad[:, 1:].any(dim=1)
-            else:
-                future_valid = ~image_is_pad[:, -1]
+            future_valid = ~image_is_pad[:, -1]
 
         return {
             "target_latent": empty_target,
@@ -1987,49 +1325,10 @@ class JAMPolicy(torch.nn.Module):
             "action_is_pad": action_is_pad,
             "action_dim_is_pad": action_dim_is_pad,
             "ssl_student_features": student_features,
-            "ssl_student_layer_features": student_layer_features,
             "ssl_current_image": current_frame,
             "ssl_future_image": future_frame,
             "ssl_future_valid": future_valid,
         }
-
-    def _adapt_external_ssl_layer_features(
-        self,
-        layer_features: tuple[torch.Tensor, ...],
-        *,
-        final_adapted_features: Optional[torch.Tensor] = None,
-    ) -> tuple[torch.Tensor, ...]:
-        """Map native DINO hidden states into ActionDiTYak's 1536-D space."""
-
-        adapter = getattr(self.video_expert, "external_ssl_img_in", None)
-        if adapter is None:
-            raise RuntimeError(
-                "Layerwise DINO action fusion is missing its shared visual "
-                "adapter."
-            )
-        expected_layers = int(self.external_ssl_num_layers)
-        if len(layer_features) != expected_layers:
-            raise RuntimeError(
-                "Layerwise DINO feature depth mismatch: "
-                f"expected {expected_layers}, got {len(layer_features)}."
-            )
-        adapted = [
-            adapter(features)
-            for features in layer_features[:-1]
-        ]
-        if final_adapted_features is None:
-            adapted.append(adapter(layer_features[-1]))
-        else:
-            if tuple(final_adapted_features.shape[:2]) != tuple(
-                layer_features[-1].shape[:2]
-            ):
-                raise RuntimeError(
-                    "Final adapted DINO token shape mismatch: "
-                    f"adapted={tuple(final_adapted_features.shape)} "
-                    f"native={tuple(layer_features[-1].shape)}."
-                )
-            adapted.append(final_adapted_features)
-        return tuple(adapted)
 
     def build_inputs_ovis_u1(self, sample, tiled: bool = False):
         if bool(getattr(self, "external_ssl_enabled", False)):
@@ -2048,16 +1347,7 @@ class JAMPolicy(torch.nn.Module):
                 next_frame = video[:, :, -1]
             if next_frame is None:
                 raise ValueError("Ovis-U1 stack sample requires `next_frame`, `target_image`, or target token fields.")
-            # IMAGEWAM_FORESIGHT_CACHE_EMULATE=1 (throughput measurement only): reuse the first
-            # batch's future-frame tokens instead of re-encoding, as a target cache would supply them.
-            cache_emulate = os.environ.get("JAM_FORESIGHT_CACHE_EMULATE") == "1"
-            cached = getattr(self, "_cache_emulate_target_tokens", None)
-            if cache_emulate and cached is not None and int(cached[0].shape[0]) == int(next_frame.shape[0]):
-                target_tokens, target_img_ids = cached
-            else:
-                target_tokens, target_img_ids = self._encode_ovis_u1_image_tokens(next_frame, time_value=0.0)
-                if cache_emulate:
-                    self._cache_emulate_target_tokens = (target_tokens.detach(), target_img_ids.detach())
+            target_tokens, target_img_ids = self._encode_ovis_u1_image_tokens(next_frame, time_value=0.0)
 
         if "ref_image_latents" in sample and "ref_img_ids" in sample:
             ref_tokens = sample["ref_image_latents"].to(device=self.device, dtype=self.torch_dtype, non_blocking=True)
@@ -2103,44 +1393,6 @@ class JAMPolicy(torch.nn.Module):
             "action_is_pad": action_is_pad,
             "action_dim_is_pad": action_dim_is_pad,
         }
-        if (
-            bool(getattr(self, "foresight_enabled", False))
-            and str(getattr(self, "foresight_teacher_type", "yak")) == "videomae_clip"
-        ):
-            if video is None or video.ndim != 5:
-                raise ValueError(
-                    "VideoMAE foresight teacher requires the full RGB window "
-                    "`sample['video']` with shape [B,3,T,H,W]."
-                )
-            clip_frames = int(self.foresight_teacher_clip_frames)
-            if int(video.shape[2]) != clip_frames + 1:
-                raise ValueError(
-                    "VideoMAE foresight expects current t plus the real future clip: "
-                    f"required T={clip_frames + 1}, got {tuple(video.shape)}."
-                )
-            inputs["foresight_teacher_video"] = video[:, :, 1:]
-            image_is_pad = sample.get("image_is_pad")
-            if image_is_pad is None:
-                clip_valid = torch.ones(
-                    int(video.shape[0]),
-                    device=self.device,
-                    dtype=torch.bool,
-                )
-            else:
-                if image_is_pad.ndim != 2 or tuple(image_is_pad.shape) != (
-                    int(video.shape[0]),
-                    clip_frames + 1,
-                ):
-                    raise ValueError(
-                        "VideoMAE foresight `image_is_pad` must cover current+future "
-                        f"[B,{clip_frames + 1}], got {tuple(image_is_pad.shape)}."
-                    )
-                clip_valid = ~image_is_pad[:, 1:].to(
-                    device=self.device,
-                    dtype=torch.bool,
-                    non_blocking=True,
-                ).any(dim=1)
-            inputs["foresight_teacher_valid"] = clip_valid
         return inputs
 
     @torch.no_grad()
@@ -2314,8 +1566,6 @@ class JAMPolicy(torch.nn.Module):
         if model_spec is None:
             if int(self.text_dim) == 7680:
                 model_spec = "Qwen/Qwen3-4B"
-            elif int(self.text_dim) == 12288:
-                model_spec = "Qwen/Qwen3-8B"
             else:
                 raise ValueError(f"Cannot infer FLUX.2 Qwen3 model spec from text_dim={self.text_dim}")
         logger.info("Lazy-loading FLUX.2 Qwen3 text encoder for prompt inference: %s", model_spec)
@@ -2416,73 +1666,6 @@ class JAMPolicy(torch.nn.Module):
         }
         return result
 
-    def build_inputs_dim(self, sample, tiled: bool = False):
-        del tiled
-        video = sample.get("video")
-        if video is None or video.ndim != 5:
-            raise ValueError(f"DIM stack sample requires `video` [B,3,T,H,W], got {None if video is None else tuple(video.shape)}")
-        if video.shape[1] != 3:
-            raise ValueError(f"DIM stack expects RGB video, got {tuple(video.shape)}")
-        source_image = sample.get("current_frame", sample.get("input_image"))
-        target_image = sample.get("next_frame", sample.get("target_image"))
-        if source_image is None:
-            source_image = video[:, :, 0]
-        if target_image is None:
-            target_image = video[:, :, -1]
-        if source_image.shape[-2] % int(self.video_expert.vae_downsample_rate) != 0 or source_image.shape[-1] % int(self.video_expert.vae_downsample_rate) != 0:
-            raise ValueError(
-                "DIM image spatial dims must be multiples of "
-                f"{self.video_expert.vae_downsample_rate}, got {tuple(source_image.shape[-2:])}."
-            )
-        source_image = source_image.to(device=self.device, dtype=self.torch_dtype, non_blocking=True)
-        target_image = target_image.to(device=self.device, dtype=self.torch_dtype, non_blocking=True)
-        source_latent = self._encode_dim_image_latents(source_image)
-        target_latent = self._encode_dim_image_latents(target_image)
-
-        cached_dim_condition = sample.get("dim_condition_hidden_states")
-        cached_dim_mask = sample.get("dim_condition_attention_mask")
-        cached_text = sample.get("text_hidden_states")
-        cached_text_mask = sample.get("text_attention_mask")
-        if cached_dim_condition is not None and cached_dim_mask is not None:
-            condition, condition_mask = (
-                cached_dim_condition.to(device=self.device, dtype=self.torch_dtype, non_blocking=True),
-                cached_dim_mask.to(device=self.device, dtype=torch.bool, non_blocking=True),
-            )
-        elif cached_text is not None and cached_text_mask is not None:
-            condition, condition_mask = (
-                cached_text.to(device=self.device, dtype=self.torch_dtype, non_blocking=True),
-                cached_text_mask.to(device=self.device, dtype=torch.bool, non_blocking=True),
-            )
-        else:
-            instruction = sample.get("instruction", sample.get("prompt"))
-            if instruction is None:
-                raise ValueError("DIM stack requires `instruction`/`prompt` for online Qwen image+text conditioning.")
-            condition, condition_mask = self._encode_dim_condition_online(instruction, source_image)
-        if self.proprio_encoder is not None:
-            condition, condition_mask = self._append_proprio_to_context_if_enabled(
-                context=condition,
-                context_mask=condition_mask,
-                proprio=sample.get("proprio"),
-                source="DIM training sample",
-            )
-
-        action = sample["action"].to(device=self.device, dtype=self.torch_dtype, non_blocking=True)
-        action_is_pad = sample.get("action_is_pad")
-        if action_is_pad is not None:
-            action_is_pad = action_is_pad.to(device=self.device, dtype=torch.bool, non_blocking=True)
-        action_dim_is_pad = sample.get("action_dim_is_pad")
-        if action_dim_is_pad is not None:
-            action_dim_is_pad = action_dim_is_pad.to(device=self.device, dtype=torch.bool, non_blocking=True)
-        return {
-            "target_latent": target_latent,
-            "source_latent": source_latent,
-            "condition": condition,
-            "condition_mask": condition_mask,
-            "action": action,
-            "action_is_pad": action_is_pad,
-            "action_dim_is_pad": action_dim_is_pad,
-        }
-
     @torch.no_grad()
     def _build_mot_attention_mask(
         self,
@@ -2505,34 +1688,6 @@ class JAMPolicy(torch.nn.Module):
         # action -> first-frame video only
         first_frame_tokens = min(video_tokens_per_frame, video_seq_len)
         mask[video_seq_len:, :first_frame_tokens] = True
-        return mask
-
-    @torch.no_grad()
-    def _build_mot_attention_mask_omnigen2(
-        self,
-        encoder_seq_lengths: list[int],
-        seq_lengths: list[int],
-        max_video_seq_len: int,
-        action_seq_len: int,
-        device: torch.device,
-        l_effective_ref_img_len: list[list[int]],
-    ) -> torch.Tensor:
-        batch_size = len(seq_lengths)
-        total_seq_len = int(max_video_seq_len) + int(action_seq_len)
-        action_start = int(max_video_seq_len)
-        mask = torch.zeros(batch_size, total_seq_len, total_seq_len, dtype=torch.bool, device=device)
-        for i, (cap_len, video_len) in enumerate(zip(encoder_seq_lengths, seq_lengths)):
-            prefix_len = cap_len + sum(l_effective_ref_img_len[i])
-
-            # video -> video: text/ref prefix cannot attend noisy target, matching
-            # wan22 first_frame_causal where first-frame tokens cannot see future tokens.
-            mask[i, :prefix_len, :prefix_len] = True
-            mask[i, prefix_len:video_len, :video_len] = True
-            # action -> action
-            mask[i, action_start:, action_start:] = True
-            # action -> text/ref prefix only. Text is included here because
-            # OmniGen2-style ActionDiT has no separate text cross-attention.
-            mask[i, action_start:, :prefix_len] = True
         return mask
 
     @torch.no_grad()
@@ -2707,173 +1862,13 @@ class JAMPolicy(torch.nn.Module):
             return (action_loss_token * valid).sum(dim=1) / valid_sum
         return action_loss_token.mean(dim=1)
 
-    def _training_loss_omnigen2(self, sample, tiled: bool = False):
-        debug_every = int(os.environ.get("JAM_DEBUG_OMNIGEN2_FORWARD_EVERY", "0") or "0")
-        debug_threshold = float(os.environ.get("JAM_DEBUG_OMNIGEN2_FORWARD_THRESHOLD", "0") or "0")
-        debug_forward = debug_every > 0 or debug_threshold > 0
-        debug_step = int(getattr(self, "_omnigen2_forward_debug_step", 0)) + 1
-        self._omnigen2_forward_debug_step = debug_step
-        debug_segments: list[tuple[str, float]] = []
-        debug_meta: dict[str, Any] = {}
-
-        def _sync_and_mark(name: str, start_time: float) -> float:
-            if debug_forward and self.device.type == "cuda":
-                torch.cuda.synchronize(self.device)
-            now = time.perf_counter()
-            if debug_forward:
-                debug_segments.append((name, now - start_time))
-            return now
-
-        if debug_forward and self.device.type == "cuda":
-            torch.cuda.reset_peak_memory_stats(self.device)
-            torch.cuda.synchronize(self.device)
-        t0 = time.perf_counter()
-        inputs = self.build_inputs_omnigen2(sample, tiled=tiled)
-        t0 = _sync_and_mark("build_inputs", t0)
-        target_latent = inputs["target_latent"]
-        action = inputs["action"]
-        batch_size = target_latent.shape[0]
-
-        noise_video = torch.randn_like(target_latent)
-        timestep_video = self.train_video_scheduler.sample_training_t(
-            batch_size=batch_size,
-            device=self.device,
-            dtype=target_latent.dtype,
-        )
-        noisy_latent = self.train_video_scheduler.add_noise(target_latent, noise_video, timestep_video)
-        target_video = self.train_video_scheduler.training_target(target_latent, noise_video, timestep_video)
-
-        noise_action = torch.randn_like(action)
-        timestep_action = self.train_action_scheduler.sample_training_t(
-            batch_size=batch_size,
-            device=self.device,
-            dtype=action.dtype,
-        )
-        noisy_action = self.train_action_scheduler.add_noise(action, noise_action, timestep_action)
-        target_action = self.train_action_scheduler.training_target(action, noise_action, timestep_action)
-        t0 = _sync_and_mark("noise_sched", t0)
-
-        video_pre = self.video_expert.pre_dit(
-            x=noisy_latent,
-            timestep=timestep_video,
-            context=inputs["text_hidden_states"],
-            context_mask=inputs["text_attention_mask"],
-            ref_image_hidden_states=inputs["ref_image_latents"],
-        )
-        t0 = _sync_and_mark("video_pre", t0)
-        action_pre = self.action_expert.pre_dit(
-            action_tokens=noisy_action,
-            timestep=timestep_action,
-        )
-        t0 = _sync_and_mark("action_pre", t0)
-
-        video_tokens = video_pre["tokens"]
-        action_tokens = action_pre["tokens"]
-        attention_mask = self._build_mot_attention_mask_omnigen2(
-            encoder_seq_lengths=video_pre["encoder_seq_lengths"],
-            seq_lengths=video_pre["seq_lengths"],
-            max_video_seq_len=video_tokens.shape[1],
-            action_seq_len=action_tokens.shape[1],
-            l_effective_ref_img_len=video_pre.get("l_effective_ref_img_len"),
-            device=video_tokens.device,
-        )
-        if debug_forward:
-            debug_meta = {
-                "B": int(batch_size),
-                "video_seq": int(video_tokens.shape[1]),
-                "action_seq": int(action_tokens.shape[1]),
-                "cap_min": int(min(video_pre["encoder_seq_lengths"])),
-                "cap_max": int(max(video_pre["encoder_seq_lengths"])),
-                "seq_min": int(min(video_pre["seq_lengths"])),
-                "seq_max": int(max(video_pre["seq_lengths"])),
-                "target_shape": tuple(target_latent.shape),
-                "action_shape": tuple(action.shape),
-            }
-        t0 = _sync_and_mark("mask", t0)
-        tokens_out = self.mot(
-            embeds_all={"video": video_tokens, "action": action_tokens},
-            attention_mask=attention_mask,
-            freqs_all={"video": video_pre["freqs"], "action": action_pre["freqs"]},
-            context_all={"video": None, "action": None},
-            t_mod_all={"video": video_pre["t_mod"], "action": action_pre["t_mod"]},
-        )
-        t0 = _sync_and_mark("mot", t0)
-
-        pred_video = self.video_expert.post_dit(tokens_out["video"], video_pre)
-        pred_action = self.action_expert.post_dit(tokens_out["action"], action_pre)
-
-        video_loss_per_sample = F.mse_loss(pred_video.float(), target_video.float(), reduction="none").mean(dim=(1, 2, 3))
-        video_weight = self.train_video_scheduler.training_weight(timestep_video).to(
-            video_loss_per_sample.device, dtype=video_loss_per_sample.dtype
-        )
-        loss_video = (video_loss_per_sample * video_weight).mean()
-
-        action_loss_per_sample = self._compute_action_loss_per_sample(
-            pred_action=pred_action,
-            target_action=target_action,
-            action_is_pad=inputs["action_is_pad"],
-            action_dim_is_pad=inputs.get("action_dim_is_pad"),
-        )
-        action_weight = self.train_action_scheduler.training_weight(timestep_action).to(
-            action_loss_per_sample.device, dtype=action_loss_per_sample.dtype
-        )
-        loss_action = (action_loss_per_sample * action_weight).mean()
-
-        loss_total = self.loss_lambda_video * loss_video + self.loss_lambda_action * loss_action
-        t0 = _sync_and_mark("post_loss", t0)
-        if debug_forward:
-            total_debug = sum(value for _, value in debug_segments)
-            should_log = (debug_every > 0 and debug_step % debug_every == 0) or (
-                debug_threshold > 0 and total_debug >= debug_threshold
-            )
-            phase_names = ["build_inputs", "noise_sched", "video_pre", "action_pre", "mask", "mot", "post_loss"]
-            segment_dict = dict(debug_segments)
-            durations = [float(segment_dict.get(name, 0.0)) for name in phase_names]
-            arrivals = []
-            cumulative = 0.0
-            for value in durations:
-                cumulative += value
-                arrivals.append(cumulative)
-            peak_gib = (
-                torch.cuda.max_memory_allocated(self.device) / (1024**3)
-                if self.device.type == "cuda"
-                else 0.0
-            )
-            meta_values = [
-                float(debug_step),
-                1.0 if should_log else 0.0,
-                float(debug_meta.get("B", 0)),
-                float(debug_meta.get("video_seq", 0)),
-                float(debug_meta.get("action_seq", 0)),
-                float(debug_meta.get("cap_min", 0)),
-                float(debug_meta.get("cap_max", 0)),
-                float(debug_meta.get("seq_min", 0)),
-                float(debug_meta.get("seq_max", 0)),
-                float(peak_gib),
-            ]
-            profile_values = durations + arrivals + meta_values
-            self._last_omnigen2_forward_profile = {
-                "phase_names": phase_names,
-                "num_phases": len(phase_names),
-            }
-            self._last_omnigen2_forward_profile_tensor = torch.tensor(
-                profile_values,
-                device=loss_total.device,
-                dtype=torch.float32,
-            )
-        return loss_total, {
-            "loss_video": self.loss_lambda_video * float(loss_video.detach().item()),
-            "loss_action": self.loss_lambda_action * float(loss_action.detach().item()),
-        }
-
     def _training_loss_ovis_native_dino(self, inputs: dict):
         """Action flow-matching with a native SSL/action prefix.
 
-        The DINO or single-frame VideoMAE visual stream is executed exactly
-        once on the current image. Its per-layer patch K/V feed the matching
-        action layer, while its final dense tokens are reused by the future
-        foresight objective. No Yak transformer block or VAE image token is
-        executed.
+        The DINO visual stream is executed exactly once on the current image.
+        Its per-layer patch K/V feed the matching action layer, while its final
+        dense tokens are reused by the future foresight objective. No Yak
+        transformer block or VAE image token is executed.
         """
 
         ssl_student = getattr(self.mot, "ssl_student", None)
@@ -2985,7 +1980,7 @@ class JAMPolicy(torch.nn.Module):
             getattr(
                 self,
                 "external_ssl_action_fusion_type",
-                "layerwise_mot",
+                "",
             )
         )
         if (
@@ -2993,27 +1988,11 @@ class JAMPolicy(torch.nn.Module):
             and external_ssl_fusion
             in {
                 "native_dino12_mot",
-                "native_dino24_mot",
                 "native_dinov2_large24_mot",
-                "native_videomae12_mot",
             }
         ):
             return self._training_loss_ovis_native_dino(inputs)
-        direct_ssl_action = (
-            external_ssl_on
-            and external_ssl_fusion
-            in {"direct_static_kv", "direct_layerwise_kv"}
-        )
-        layerwise_dino_action = (
-            external_ssl_on
-            and external_ssl_fusion == "direct_layerwise_kv"
-        )
         compute_video_loss = float(self.loss_lambda_video) != 0.0
-        if external_ssl_on and compute_video_loss:
-            raise ValueError(
-                "The external SSL visual student has no image-generation head; "
-                "set model.loss.lambda_video=0."
-            )
         if compute_video_loss:
             noise_video = torch.randn_like(target_latent)
             timestep_video = self.train_video_scheduler.sample_training_t(
@@ -3083,83 +2062,22 @@ class JAMPolicy(torch.nn.Module):
         capture_yak_foresight = foresight_on and not external_ssl_on
         if capture_yak_foresight:
             self.mot._foresight_capture_layers = {int(self.foresight_layer)}
-        if direct_ssl_action:
-            if int(video_pre["target_len"]) != 0:
-                raise RuntimeError(
-                    "DINO direct action fusion requires an empty "
-                    "future target stream."
-                )
-            expected_cond_len = (
-                int(self.external_ssl_grid_size)
-                * int(self.external_ssl_grid_size)
-                * int(self.external_ssl_num_views)
-            )
-            if int(video_pre["cond_len"]) != expected_cond_len:
-                raise RuntimeError(
-                    "DINO direct action fusion received an unexpected visual "
-                    f"token count: expected {expected_cond_len}, "
-                    f"got {video_pre['cond_len']}."
-                )
-            image_layer_tokens = None
-            action_layer_map = None
-            if layerwise_dino_action:
-                raw_layer_features = inputs.get("ssl_student_layer_features")
-                if raw_layer_features is None:
-                    raise RuntimeError(
-                        "Layerwise DINO action fusion is missing student "
-                        "hidden states."
-                    )
-                image_layer_tokens = (
-                    self._adapt_external_ssl_layer_features(
-                        raw_layer_features,
-                        final_adapted_features=video_pre["tokens"]["img"],
-                    )
-                )
-                action_layer_map = list(
-                    self.external_ssl_action_layer_map
-                )
-            prefix_cache = self.mot.prefill_yak_direct_prefix_cache(
-                prefix_tokens=video_pre["tokens"],
-                prefix_freqs=video_pre["freqs"],
-                prefix_t_mod=video_pre["t_mod"],
-                image_layer_tokens=image_layer_tokens,
-                action_layer_map=action_layer_map,
-            )
-            action_attention_mask = self._slice_ovis_action_attention_mask(
-                attention_mask,
-                txt_len=int(video_pre["txt_len"]),
-                target_len=int(video_pre["target_len"]),
-                cond_len=int(video_pre["cond_len"]),
-                action_len=int(action_pre["tokens"].shape[1]),
-            )
-            action_out = self.mot.forward_yak_action_with_direct_prefix_cache(
-                action_tokens=action_pre["tokens"],
-                action_ids=action_pre["ids"],
-                action_t_mod=action_pre["t_mod"],
-                prefix_kv_cache=prefix_cache,
-                attention_mask=action_attention_mask,
-            )
-            tokens_out = {
+        tokens_out = self.mot(
+            embeds_all={
                 "video": video_pre["tokens"],
-                "action": action_out,
-            }
-        else:
-            tokens_out = self.mot(
-                embeds_all={
-                    "video": video_pre["tokens"],
-                    "action": action_pre["tokens"],
-                },
-                attention_mask=attention_mask,
-                freqs_all={"video": video_pre["freqs"]},
-                context_all={
-                    "video": None,
-                    "action": {"ids": action_pre["ids"]},
-                },
-                t_mod_all={
-                    "video": video_pre["t_mod"],
-                    "action": action_pre["t_mod"],
-                },
-            )
+                "action": action_pre["tokens"],
+            },
+            attention_mask=attention_mask,
+            freqs_all={"video": video_pre["freqs"]},
+            context_all={
+                "video": None,
+                "action": {"ids": action_pre["ids"]},
+            },
+            t_mod_all={
+                "video": video_pre["t_mod"],
+                "action": action_pre["t_mod"],
+            },
+        )
         foresight_captured = None
         if capture_yak_foresight:
             foresight_captured = getattr(self.mot, "_foresight_video_hiddens", None)
@@ -3252,10 +2170,9 @@ class JAMPolicy(torch.nn.Module):
         """Wan-recipe foresight loss on the Ovis (Yak) stack.
 
         Student: cond (current-frame) token hiddens captured after
-        ``foresight_layer`` inside the MoT forward.  The frozen target is
-        either Yak features on clean endpoints or the final spatial tubelet of
-        a VideoMAE encoding of the real future clip.  In both cases the teacher
-        is detached and the objective is token-wise cosine alignment.
+        ``foresight_layer`` inside the MoT forward.  The frozen target is the
+        Yak feature of the clean endpoints; the teacher is detached and the
+        objective is token-wise cosine alignment.
         """
         if bool(getattr(self, "external_ssl_enabled", False)):
             from .external_ssl import get_external_ssl_teacher
@@ -3300,72 +2217,8 @@ class JAMPolicy(torch.nn.Module):
         student_img = captured[layer]  # [B, student_target_len + cond_len, C]
         student_cond = student_img[:, student_target_len:, :]
 
-        if str(getattr(self, "foresight_teacher_type", "yak")) == "vae_direct":
-            from .foresight_yak import lift_vae_direct_tokens
-
-            # `target_latent` is already the frozen pretrained Ovis VAE's
-            # shift/scaling-normalized, 2x2-packed representation of t+16.
-            # Reuse it directly: no second VAE pass and no Yak teacher.
-            target = lift_vae_direct_tokens(
-                inputs["target_latent"].detach(),
-                output_dim=int(self.foresight_vae_direct_output_dim),
-            )
-            projector = self.mot.foresight_projector
-            prediction = projector.head(projector.trunk(student_cond), 0)
-            if tuple(prediction.shape) != tuple(target.shape):
-                raise RuntimeError(
-                    "Ovis student/VAE-direct target mismatch: "
-                    f"student_prediction={tuple(prediction.shape)} "
-                    f"vae_target={tuple(target.shape)}."
-                )
-            return cosine_align_loss(prediction, target)
-
-        if str(getattr(self, "foresight_teacher_type", "yak")) == "videomae_clip":
-            teacher_video = inputs.get("foresight_teacher_video")
-            teacher_valid = inputs.get("foresight_teacher_valid")
-            if teacher_video is None or teacher_valid is None:
-                raise RuntimeError("VideoMAE foresight teacher inputs are incomplete.")
-            teacher = getattr(self, "foresight_teacher", None)
-            if teacher is None:
-                raise RuntimeError(
-                    "VideoMAE foresight training requires the frozen teacher; "
-                    "JAM_FORESIGHT_NO_TEACHER is inference-only."
-                )
-            with torch.no_grad():
-                target = teacher(teacher_video)
-            projector = self.mot.foresight_projector
-            prediction = projector.head(projector.trunk(student_cond), 0)
-            if tuple(prediction.shape) != tuple(target.shape):
-                raise RuntimeError(
-                    "Ovis student/VideoMAE teacher token mismatch: "
-                    f"student_prediction={tuple(prediction.shape)} "
-                    f"teacher={tuple(target.shape)}."
-                )
-            per_sample = (
-                1.0
-                - F.cosine_similarity(
-                    prediction.float(),
-                    target.detach().float(),
-                    dim=-1,
-                )
-            ).mean(dim=1)
-            valid = teacher_valid.to(
-                device=per_sample.device,
-                dtype=per_sample.dtype,
-            )
-            if bool(valid.any().item()):
-                return (per_sample * valid).sum() / valid.sum()
-            return prediction.float().sum() * 0.0
-
         teacher = self.foresight_teacher
-        # IMAGEWAM_FORESIGHT_CACHE_EMULATE=1 (throughput measurement only): skip the frozen
-        # teacher pass after the first batch and reuse its features, as a target cache would.
-        cache_emulate = os.environ.get("JAM_FORESIGHT_CACHE_EMULATE") == "1"
-        cached_feats = getattr(self, "_cache_emulate_teacher_feats", None)
-        if cache_emulate and cached_feats is not None and int(cached_feats[1].shape[0]) == int(batch_size):
-            teacher_feats = cached_feats
-        else:
-          with torch.no_grad():
+        with torch.no_grad():
             t_pre = teacher.expert.pre_dit(
                 x=inputs["target_latent"],
                 timestep=torch.zeros(batch_size, device=self.device, dtype=inputs["target_latent"].dtype),
@@ -3406,8 +2259,6 @@ class JAMPolicy(torch.nn.Module):
                 0: t_img[:, t_target_len:, :],
                 1: t_img[:, :t_target_len, :],
             }
-          if cache_emulate:
-            self._cache_emulate_teacher_feats = {k: v.detach() for k, v in teacher_feats.items()}
 
         projector = self.mot.foresight_projector
         trunk_out = projector.trunk(student_cond)
@@ -3653,115 +2504,6 @@ class JAMPolicy(torch.nn.Module):
             losses.append(cosine_align_loss(prediction, target))
         return torch.stack(losses).mean()
 
-    def _training_loss_dim(self, sample, tiled: bool = False):
-        inputs = self.build_inputs_dim(sample, tiled=tiled)
-        target_latent = inputs["target_latent"]
-        source_latent = inputs["source_latent"]
-        condition = inputs["condition"]
-        condition_mask = inputs["condition_mask"]
-        action = inputs["action"]
-        batch_size = int(target_latent.shape[0])
-
-        noise_video = torch.randn_like(target_latent)
-        timestep_video = self.train_video_scheduler.sample_training_t(
-            batch_size=batch_size,
-            device=self.device,
-            dtype=target_latent.dtype,
-        )
-        noisy_latent = self.train_video_scheduler.add_noise(target_latent, noise_video, timestep_video)
-        target_video = self.train_video_scheduler.training_target(target_latent, noise_video, timestep_video)
-
-        cond_latent = torch.randn_like(target_latent)
-        timestep_cond = torch.full(
-            (batch_size,),
-            float(self.train_video_scheduler.num_train_timesteps),
-            device=self.device,
-            dtype=target_latent.dtype,
-        )
-
-        noise_action = torch.randn_like(action)
-        timestep_action = self.train_action_scheduler.sample_training_t(
-            batch_size=batch_size,
-            device=self.device,
-            dtype=action.dtype,
-        )
-        noisy_action = self.train_action_scheduler.add_noise(action, noise_action, timestep_action)
-        target_action = self.train_action_scheduler.training_target(action, noise_action, timestep_action)
-
-        video_pre = self.video_expert.pre_dit(
-            x=noisy_latent,
-            timestep=timestep_video,
-            context=condition,
-            context_mask=condition_mask,
-            latents_condition=source_latent if self.dim_with_latents_condition else None,
-        )
-        cond_pre = self.video_expert.pre_dit(
-            x=cond_latent,
-            timestep=timestep_cond,
-            context=condition,
-            context_mask=condition_mask,
-            latents_condition=source_latent if self.dim_with_latents_condition else None,
-        )
-        action_pre = self.action_expert.pre_dit(
-            action_tokens=noisy_action,
-            timestep=timestep_action,
-        )
-        tokens_out = self.mot(
-            embeds_all={
-                "video": video_pre["tokens"],
-                "cond": cond_pre["tokens"],
-                "action": action_pre["tokens"],
-            },
-            attention_mask=None,
-            freqs_all={},
-            context_all={
-                "video": {
-                    "context": video_pre["context"],
-                    "mask": video_pre["context_mask"],
-                    "hw": (video_pre["meta"]["token_height"], video_pre["meta"]["token_width"]),
-                },
-                "cond": {
-                    "context": cond_pre["context"],
-                    "mask": cond_pre["context_mask"],
-                    "hw": (cond_pre["meta"]["token_height"], cond_pre["meta"]["token_width"]),
-                },
-                "action": {
-                    "context_tokens": cond_pre["context_tokens"],
-                    "context_mask_bool": cond_pre["context_mask_bool"],
-                },
-            },
-            t_mod_all={
-                "video": video_pre["t_mod"],
-                "cond": cond_pre["t_mod"],
-                "action": action_pre["t_mod"],
-            },
-        )
-        pred_video = self.video_expert.post_dit(tokens_out["video"], video_pre)
-        pred_action = self.action_expert.post_dit(tokens_out["action"], action_pre)
-
-        video_loss_per_sample = F.mse_loss(pred_video.float(), target_video.float(), reduction="none").flatten(1).mean(dim=1)
-        video_weight = self.train_video_scheduler.training_weight(timestep_video).to(
-            video_loss_per_sample.device,
-            dtype=video_loss_per_sample.dtype,
-        )
-        loss_video = (video_loss_per_sample * video_weight).mean()
-        action_loss_per_sample = self._compute_action_loss_per_sample(
-            pred_action=pred_action,
-            target_action=target_action,
-            action_is_pad=inputs["action_is_pad"],
-            action_dim_is_pad=inputs.get("action_dim_is_pad"),
-        )
-        action_weight = self.train_action_scheduler.training_weight(timestep_action).to(
-            action_loss_per_sample.device,
-            dtype=action_loss_per_sample.dtype,
-        )
-        loss_action = (action_loss_per_sample * action_weight).mean()
-        loss_total = self.loss_lambda_video * loss_video + self.loss_lambda_action * loss_action
-        return loss_total, {
-            "loss_video": self.loss_lambda_video * float(loss_video.detach().item()),
-            "loss_action": self.loss_lambda_action * float(loss_action.detach().item()),
-        }
-
     def _debug_register_finite_hooks(self):
         # Env-gated (IMAGEWAM_DEBUG_FINITE=1): log the first LEAF module whose
         # output goes non-finite while its inputs were finite = the NaN origin.
@@ -3859,8 +2601,6 @@ class JAMPolicy(torch.nn.Module):
     def training_loss(self, sample, tiled: bool = False):
         self._maybe_register_grad_sanitizer()
         self._debug_register_finite_hooks()
-        if self.stack == "dim":
-            return self._training_loss_dim(sample, tiled=tiled)
         if self.stack == "flux2":
             return self._training_loss_flux2(sample, tiled=tiled)
         if self.stack == "ovis_u1":
@@ -3873,8 +2613,6 @@ class JAMPolicy(torch.nn.Module):
             if _ls:
                 loss = loss * float(_ls)
             return loss, loss_dict
-        if self.stack == "omnigen2":
-            return self._training_loss_omnigen2(sample, tiled=tiled)
 
         inputs = self.build_inputs(sample, tiled=tiled)
         input_latents = inputs["input_latents"]
@@ -4347,21 +3085,7 @@ class JAMPolicy(torch.nn.Module):
         seed: Optional[int] = None,
         rand_device: str = "cpu",
         tiled: bool = False,
-        profile_infer_timing: bool = False,
     ) -> dict[str, Any]:
-        if self.stack == "dim":
-            return self.infer_action_dim(
-                prompt=prompt,
-                input_image=input_image,
-                action_horizon=action_horizon,
-                proprio=proprio,
-                context=context,
-                context_mask=context_mask,
-                num_inference_steps=num_inference_steps,
-                sigma_shift=sigma_shift,
-                seed=seed,
-                rand_device=rand_device,
-            )
         if self.stack == "flux2":
             return self.infer_action_flux2(
                 prompt=prompt,
@@ -4387,20 +3111,6 @@ class JAMPolicy(torch.nn.Module):
                 sigma_shift=sigma_shift,
                 seed=seed,
                 rand_device=rand_device,
-            )
-        if self.stack == "omnigen2":
-            return self.infer_action_omnigen2(
-                prompt=prompt,
-                input_image=input_image,
-                action_horizon=action_horizon,
-                proprio=proprio,
-                context=context,
-                context_mask=context_mask,
-                num_inference_steps=num_inference_steps,
-                sigma_shift=sigma_shift,
-                seed=seed,
-                rand_device=rand_device,
-                profile_infer_timing=profile_infer_timing,
             )
 
         self.eval()
@@ -4488,23 +3198,6 @@ class JAMPolicy(torch.nn.Module):
             fuse_vae_embedding_in_latents=fuse_flag,
         )
         video_seq_len = int(video_pre["tokens"].shape[1])
-        patch_size = tuple(getattr(self.video_expert, "patch_size", (1, 1, 1)))
-        condition_grid = (
-            int(first_frame_latents.shape[3]) // int(patch_size[1]),
-            int(first_frame_latents.shape[4]) // int(patch_size[2]),
-        )
-        self._configure_action_attention_capture(
-            condition_slice=(0, video_seq_len),
-            condition_grid=condition_grid,
-            prefix_len=video_seq_len,
-            action_len=int(latents_action.shape[1]),
-            metadata={
-                "stack": str(self.stack),
-                "source": "imagewam_infer_action",
-                "condition": "first_frame_latents",
-                "input_size": [int(height), int(width)],
-            },
-        )
         attention_mask = self._build_mot_attention_mask(
             video_seq_len=video_seq_len,
             action_seq_len=latents_action.shape[1],
@@ -4528,8 +3221,7 @@ class JAMPolicy(torch.nn.Module):
             dtype=latents_action.dtype,
             shift_override=sigma_shift,
         )
-        for action_step_idx, (step_t_action, step_delta_action) in enumerate(zip(infer_timesteps_action, infer_deltas_action)):
-            self._start_action_attention_capture_step(action_step_idx)
+        for step_t_action, step_delta_action in zip(infer_timesteps_action, infer_deltas_action):
             timestep_action = step_t_action.unsqueeze(0).to(dtype=latents_action.dtype, device=self.device)
 
             pred_action_posi = self._predict_action_noise_with_cache(
@@ -4548,245 +3240,6 @@ class JAMPolicy(torch.nn.Module):
         return {
             "action": latents_action[0].detach().to(device="cpu", dtype=torch.float32),
         }
-
-    @torch.no_grad()
-    def infer_action_dim(
-        self,
-        prompt: Optional[str],
-        input_image: torch.Tensor,
-        action_horizon: int,
-        proprio: Optional[torch.Tensor] = None,
-        context: Optional[torch.Tensor] = None,
-        context_mask: Optional[torch.Tensor] = None,
-        num_inference_steps: int = 20,
-        sigma_shift: Optional[float] = None,
-        seed: Optional[int] = None,
-        rand_device: str = "cpu",
-    ) -> dict[str, Any]:
-        self.eval()
-        if input_image.ndim == 3:
-            input_image = input_image.unsqueeze(0)
-        if input_image.ndim != 4 or input_image.shape[0] != 1 or input_image.shape[1] != 3:
-            raise ValueError(f"`input_image` must be [1,3,H,W] or [3,H,W], got {tuple(input_image.shape)}")
-        downsample = int(self.video_expert.vae_downsample_rate)
-        if input_image.shape[-2] % downsample != 0 or input_image.shape[-1] % downsample != 0:
-            raise ValueError(
-                f"DIM input spatial dims must be multiples of {downsample}, got {tuple(input_image.shape[-2:])}."
-            )
-        input_image = input_image.to(device=self.device, dtype=self.torch_dtype)
-        batch_size = int(input_image.shape[0])
-
-        if context is not None or context_mask is not None:
-            if context is None or context_mask is None:
-                raise ValueError("`context` and `context_mask` must be both provided together.")
-            if context.ndim == 2:
-                context = context.unsqueeze(0)
-            if context_mask.ndim == 1:
-                context_mask = context_mask.unsqueeze(0)
-            condition = context.to(device=self.device, dtype=self.torch_dtype, non_blocking=True)
-            condition_mask = context_mask.to(device=self.device, dtype=torch.bool, non_blocking=True)
-        else:
-            if prompt is None:
-                raise ValueError("DIM action inference requires `prompt` unless precomputed context is provided.")
-            condition, condition_mask = self._encode_dim_condition_online(prompt, input_image)
-        if self.proprio_encoder is not None or proprio is not None:
-            condition, condition_mask = self._append_proprio_to_context_if_enabled(
-                context=condition,
-                context_mask=condition_mask,
-                proprio=proprio,
-                source="DIM action inference",
-            )
-
-        source_latent = self._encode_dim_image_latents(input_image)
-        generator = None if seed is None else torch.Generator(device=rand_device).manual_seed(seed)
-        cond_latent = torch.randn(
-            source_latent.shape,
-            generator=generator,
-            device=rand_device,
-            dtype=torch.float32,
-        ).to(device=self.device, dtype=self.torch_dtype)
-        latents_action = torch.randn(
-            (batch_size, action_horizon, self.action_expert.action_dim),
-            generator=generator,
-            device=rand_device,
-            dtype=torch.float32,
-        ).to(device=self.device, dtype=self.torch_dtype)
-
-        timestep_cond = torch.full(
-            (batch_size,),
-            float(self.infer_video_scheduler.num_train_timesteps),
-            device=self.device,
-            dtype=source_latent.dtype,
-        )
-        cond_pre = self.video_expert.pre_dit(
-            x=cond_latent,
-            timestep=timestep_cond,
-            context=condition,
-            context_mask=condition_mask,
-            latents_condition=source_latent if self.dim_with_latents_condition else None,
-        )
-        cond_cache = self.mot.prefill_sana_condition_cache(
-            cond_tokens=cond_pre["tokens"],
-            cond_t_mod=cond_pre["t_mod"],
-            cond_context_payload={
-                "context": cond_pre["context"],
-                "mask": cond_pre["context_mask"],
-                "hw": (cond_pre["meta"]["token_height"], cond_pre["meta"]["token_width"]),
-            },
-        )
-        infer_timesteps, infer_deltas = self.infer_action_scheduler.build_inference_schedule(
-            num_inference_steps=num_inference_steps,
-            device=self.device,
-            dtype=latents_action.dtype,
-            shift_override=sigma_shift,
-        )
-        action_context_payload = {
-            "context_tokens": cond_pre["context_tokens"],
-            "context_mask_bool": cond_pre["context_mask_bool"],
-        }
-        for step_t, step_delta in zip(infer_timesteps, infer_deltas):
-            timestep_action = step_t.expand(batch_size).to(dtype=latents_action.dtype, device=self.device)
-            action_pre = self.action_expert.pre_dit(
-                action_tokens=latents_action,
-                timestep=timestep_action,
-            )
-            action_tokens = self.mot.forward_sana_action_with_condition_cache(
-                action_tokens=action_pre["tokens"],
-                action_t_mod=action_pre["t_mod"],
-                action_context_payload=action_context_payload,
-                condition_cache=cond_cache,
-            )
-            pred_action = self.action_expert.post_dit(action_tokens, action_pre)
-            latents_action = self.infer_action_scheduler.step(pred_action, step_delta, latents_action)
-        return {"action": latents_action[0].detach().to(device="cpu", dtype=torch.float32)}
-
-    @torch.no_grad()
-    def infer_video_dim(
-        self,
-        prompt: Optional[str],
-        input_image: torch.Tensor,
-        proprio: Optional[torch.Tensor] = None,
-        context: Optional[torch.Tensor] = None,
-        context_mask: Optional[torch.Tensor] = None,
-        num_inference_steps: int = 20,
-        sigma_shift: Optional[float] = None,
-        seed: Optional[int] = None,
-        rand_device: str = "cpu",
-    ) -> dict[str, Any]:
-        self.eval()
-        if input_image.ndim == 3:
-            input_image = input_image.unsqueeze(0)
-        if input_image.ndim != 4 or input_image.shape[0] != 1 or input_image.shape[1] != 3:
-            raise ValueError(f"`input_image` must be [1,3,H,W] or [3,H,W], got {tuple(input_image.shape)}")
-        downsample = int(self.video_expert.vae_downsample_rate)
-        if input_image.shape[-2] % downsample != 0 or input_image.shape[-1] % downsample != 0:
-            raise ValueError(
-                f"DIM input spatial dims must be multiples of {downsample}, got {tuple(input_image.shape[-2:])}."
-            )
-        input_image = input_image.to(device=self.device, dtype=self.torch_dtype)
-        batch_size = int(input_image.shape[0])
-
-        if context is not None or context_mask is not None:
-            if context is None or context_mask is None:
-                raise ValueError("`context` and `context_mask` must be both provided together.")
-            if context.ndim == 2:
-                context = context.unsqueeze(0)
-            if context_mask.ndim == 1:
-                context_mask = context_mask.unsqueeze(0)
-            condition = context.to(device=self.device, dtype=self.torch_dtype, non_blocking=True)
-            condition_mask = context_mask.to(device=self.device, dtype=torch.bool, non_blocking=True)
-        else:
-            if prompt is None:
-                raise ValueError("DIM video inference requires `prompt` unless precomputed context is provided.")
-            condition, condition_mask = self._encode_dim_condition_online(prompt, input_image)
-        if self.proprio_encoder is not None or proprio is not None:
-            condition, condition_mask = self._append_proprio_to_context_if_enabled(
-                context=condition,
-                context_mask=condition_mask,
-                proprio=proprio,
-                source="DIM video inference",
-            )
-
-        source_latent = self._encode_dim_image_latents(input_image)
-        generator = None if seed is None else torch.Generator(device=rand_device).manual_seed(seed)
-        latents_video = torch.randn(
-            source_latent.shape,
-            generator=generator,
-            device=rand_device,
-            dtype=torch.float32,
-        ).to(device=self.device, dtype=self.torch_dtype)
-        infer_timesteps, infer_deltas = self.infer_video_scheduler.build_inference_schedule(
-            num_inference_steps=num_inference_steps,
-            device=self.device,
-            dtype=latents_video.dtype,
-            shift_override=sigma_shift,
-        )
-        for step_t, step_delta in zip(infer_timesteps, infer_deltas):
-            timestep_video = step_t.expand(batch_size).to(dtype=latents_video.dtype, device=self.device)
-            video_pre = self.video_expert.pre_dit(
-                x=latents_video,
-                timestep=timestep_video,
-                context=condition,
-                context_mask=condition_mask,
-                latents_condition=source_latent if self.dim_with_latents_condition else None,
-            )
-            x = video_pre["tokens"]
-            context_payload = {
-                "context": video_pre["context"],
-                "mask": video_pre["context_mask"],
-                "hw": (video_pre["meta"]["token_height"], video_pre["meta"]["token_width"]),
-            }
-            hw = tuple(context_payload["hw"])
-            for layer_idx, block in enumerate(self.video_expert.blocks):
-                state = self.mot._sana_video_io(block, x, video_pre["t_mod"], hw)
-                attn = self.mot._sana_linear_attention(block.attn, state["q"], state["k"], state["v"])
-                x = self.mot._sana_video_post(block, attn, state, context_payload)
-            pred_video = self.video_expert.post_dit(x, video_pre)
-            latents_video = self.infer_video_scheduler.step(pred_video, step_delta, latents_video)
-
-        image = self._decode_dim_image_latents(latents_video)
-        return {"image": image[0].detach().cpu()}
-
-    @torch.no_grad()
-    def infer_dim_separate(
-        self,
-        prompt: Optional[str],
-        input_image: torch.Tensor,
-        action_horizon: int,
-        proprio: Optional[torch.Tensor] = None,
-        context: Optional[torch.Tensor] = None,
-        context_mask: Optional[torch.Tensor] = None,
-        num_inference_steps: int = 20,
-        sigma_shift: Optional[float] = None,
-        seed: Optional[int] = None,
-        rand_device: str = "cpu",
-    ) -> dict[str, Any]:
-        action_out = self.infer_action_dim(
-            prompt=prompt,
-            input_image=input_image,
-            action_horizon=action_horizon,
-            proprio=proprio,
-            context=context,
-            context_mask=context_mask,
-            num_inference_steps=num_inference_steps,
-            sigma_shift=sigma_shift,
-            seed=seed,
-            rand_device=rand_device,
-        )
-        video_out = self.infer_video_dim(
-            prompt=prompt,
-            input_image=input_image,
-            proprio=proprio,
-            context=context,
-            context_mask=context_mask,
-            num_inference_steps=num_inference_steps,
-            sigma_shift=sigma_shift,
-            seed=seed,
-            rand_device=rand_device,
-        )
-        image = video_out["image"].detach().float().clamp(-1, 1)
-        image = ((image + 1.0) * 127.5).to(torch.uint8).permute(1, 2, 0).cpu().numpy()
-        return {"action": action_out["action"], "video": [Image.fromarray(image)]}
 
     @torch.no_grad()
     def infer_action_flux2(
@@ -4871,22 +3324,7 @@ class JAMPolicy(torch.nn.Module):
             text_attention_mask=video_pre["text_mask"],
         )
         prefix_len = int(video_pre["txt_len"]) + int(video_pre["cond_len"])
-        self._configure_action_attention_capture(
-            condition_slice=(int(video_pre["txt_len"]), int(video_pre["txt_len"]) + int(video_pre["cond_len"])),
-            condition_grid=(int(input_image.shape[-2]) // 16, int(input_image.shape[-1]) // 16),
-            prefix_len=prefix_len,
-            action_len=int(latents_action.shape[1]),
-            metadata={
-                "stack": str(self.stack),
-                "source": "flux2_infer_action",
-                "condition": "ref_image_tokens",
-                "txt_len": int(video_pre["txt_len"]),
-                "cond_len": int(video_pre["cond_len"]),
-                "input_size": [int(input_image.shape[-2]), int(input_image.shape[-1])],
-            },
-        )
-        for action_step_idx, (step_t_action, step_delta_action) in enumerate(zip(infer_timesteps_action, infer_deltas_action)):
-            self._start_action_attention_capture_step(action_step_idx)
+        for step_t_action, step_delta_action in zip(infer_timesteps_action, infer_deltas_action):
             timestep_action = step_t_action.expand(batch_size).to(dtype=latents_action.dtype, device=self.device)
             action_pre = self.action_expert.pre_dit(
                 action_tokens=latents_action,
@@ -5053,180 +3491,6 @@ class JAMPolicy(torch.nn.Module):
         image = self._decode_flux2_image_tokens(latents_video, height=height, width=width)
         return {"image": image[0].detach().cpu()}
 
-    @torch.no_grad()
-    def infer_action_omnigen2(
-        self,
-        prompt: Optional[str],
-        input_image: torch.Tensor,
-        action_horizon: int,
-        proprio: Optional[torch.Tensor] = None,
-        context: Optional[torch.Tensor] = None,
-        context_mask: Optional[torch.Tensor] = None,
-        num_inference_steps: int = 20,
-        sigma_shift: Optional[float] = None,
-        seed: Optional[int] = None,
-        rand_device: str = "cpu",
-        profile_infer_timing: bool = False,
-    ) -> dict[str, Any]:
-        self.eval()
-        if input_image.ndim == 3:
-            input_image = input_image.unsqueeze(0)
-        if input_image.ndim != 4 or input_image.shape[0] != 1 or input_image.shape[1] != 3:
-            raise ValueError(f"`input_image` must be [1,3,H,W] or [3,H,W], got {tuple(input_image.shape)}")
-        _, _, height, width = input_image.shape
-        if height % 16 != 0 or width % 16 != 0:
-            raise ValueError(f"`input_image` spatial dims must be multiples of 16, got HxW=({height},{width})")
-
-        profile_segments: list[tuple[str, float]] = []
-        profile_enabled = bool(profile_infer_timing)
-        profile_last = 0.0
-
-        def _sync_profile_device() -> None:
-            if not profile_enabled:
-                return
-            device = torch.device(self.device)
-            if device.type == "cuda":
-                torch.cuda.synchronize(device)
-
-        def _mark_profile(name: str) -> None:
-            nonlocal profile_last
-            if not profile_enabled:
-                return
-            _sync_profile_device()
-            now = time.perf_counter()
-            profile_segments.append((name, now - profile_last))
-            profile_last = now
-
-        if profile_enabled:
-            _sync_profile_device()
-            profile_last = time.perf_counter()
-
-        text_hidden, text_mask = self._prepare_omnigen2_infer_text(prompt, context, context_mask)
-        _mark_profile("prepare_text_s")
-        if self.proprio_encoder is not None or proprio is not None:
-            text_hidden, text_mask = self._append_proprio_to_context_if_enabled(
-                context=text_hidden,
-                context_mask=text_mask,
-                proprio=proprio,
-                source="OmniGen2 action inference",
-            )
-        input_image = input_image.to(device=self.device, dtype=self.torch_dtype)
-        ref_latent = self._encode_omnigen2_image_latents(input_image)
-        _mark_profile("encode_image_latents_s")
-        batch_size = int(ref_latent.shape[0])
-
-        generator = None if seed is None else torch.Generator(device=rand_device).manual_seed(seed)
-        latents_action = torch.randn(
-            (batch_size, action_horizon, self.action_expert.action_dim),
-            generator=generator,
-            device=rand_device,
-            dtype=torch.float32,
-        ).to(device=self.device, dtype=self.torch_dtype)
-        _mark_profile("sample_latents_s")
-
-        timestep_video = torch.zeros((batch_size,), dtype=ref_latent.dtype, device=self.device)
-        _mark_profile("prepare_video_timestep_s")
-        video_pre = self.video_expert.pre_dit(
-            x=None,
-            timestep=timestep_video,
-            context=text_hidden,
-            context_mask=text_mask,
-            ref_image_hidden_states=ref_latent,
-        )
-        _mark_profile("video_pre_dit_s")
-        video_seq_len = int(video_pre["tokens"].shape[1])
-        text_len = int(video_pre["encoder_seq_lengths"][0])
-        ref_len = int(sum(video_pre["l_effective_ref_img_len"][0]))
-        self._configure_action_attention_capture(
-            condition_slice=(text_len, text_len + ref_len),
-            condition_grid=(int(input_image.shape[-2]) // 16, int(input_image.shape[-1]) // 16),
-            prefix_len=video_seq_len,
-            action_len=int(latents_action.shape[1]),
-            metadata={
-                "stack": str(self.stack),
-                "source": "omnigen2_infer_action",
-                "condition": "ref_image_latents",
-                "text_len": text_len,
-                "ref_len": ref_len,
-                "input_size": [int(input_image.shape[-2]), int(input_image.shape[-1])],
-            },
-        )
-        attention_mask = self._build_mot_attention_mask_omnigen2(
-            encoder_seq_lengths=video_pre["encoder_seq_lengths"],
-            seq_lengths=video_pre["seq_lengths"],
-            max_video_seq_len=video_seq_len,
-            action_seq_len=latents_action.shape[1],
-            l_effective_ref_img_len=video_pre["l_effective_ref_img_len"],
-            device=video_pre["tokens"].device,
-        )
-        _mark_profile("build_attention_mask_s")
-        video_kv_cache = self.mot.prefill_video_cache(
-            video_tokens=video_pre["tokens"],
-            video_freqs=video_pre["freqs"],
-            video_t_mod=video_pre["t_mod"],
-            video_context_payload=None,
-            video_attention_mask=attention_mask[:, :video_seq_len, :video_seq_len],
-        )
-        _mark_profile("prefill_video_cache_s")
-
-        infer_timesteps_action, infer_deltas_action = self.infer_action_scheduler.build_inference_schedule(
-            num_inference_steps=num_inference_steps,
-            device=self.device,
-            dtype=latents_action.dtype,
-            shift_override=sigma_shift,
-        )
-        _mark_profile("build_action_schedule_s")
-        action_predict_times: list[float] = []
-        action_loop_start = 0.0
-        timing_payload = None
-        if profile_enabled:
-            _sync_profile_device()
-            action_loop_start = time.perf_counter()
-        for action_step_idx, (step_t_action, step_delta_action) in enumerate(zip(infer_timesteps_action, infer_deltas_action)):
-            self._start_action_attention_capture_step(action_step_idx)
-            timestep_action = step_t_action.expand(batch_size).to(dtype=latents_action.dtype, device=self.device)
-            if profile_enabled:
-                _sync_profile_device()
-                action_predict_start = time.perf_counter()
-            pred_action = self._predict_action_noise_with_cache(
-                latents_action=latents_action,
-                timestep_action=timestep_action,
-                context=text_hidden,
-                context_mask=text_mask,
-                video_kv_cache=video_kv_cache,
-                attention_mask=attention_mask,
-                video_seq_len=video_seq_len,
-            )
-            if profile_enabled:
-                _sync_profile_device()
-                action_predict_times.append(time.perf_counter() - action_predict_start)
-            latents_action = self.infer_action_scheduler.step(pred_action, step_delta_action, latents_action)
-        if profile_enabled:
-            _sync_profile_device()
-            action_denoise_loop_s = time.perf_counter() - action_loop_start
-            profile_segments.append(("action_denoise_loop_s", action_denoise_loop_s))
-            action_predict_total_s = sum(action_predict_times)
-            action_predict_count = len(action_predict_times)
-            action_predict_avg_s = action_predict_total_s / action_predict_count if action_predict_count > 0 else 0.0
-            action_predict_min_s = min(action_predict_times) if action_predict_times else 0.0
-            action_predict_max_s = max(action_predict_times) if action_predict_times else 0.0
-            total_profiled_s = sum(value for _, value in profile_segments)
-            timing_payload = {
-                "segments": {name: float(value) for name, value in profile_segments},
-                "action_horizon": int(action_horizon),
-                "num_inference_steps": int(action_predict_count),
-                "action_predict_total_s": float(action_predict_total_s),
-                "action_predict_avg_s": float(action_predict_avg_s),
-                "action_predict_min_s": float(action_predict_min_s),
-                "action_predict_max_s": float(action_predict_max_s),
-                "total_profiled_s": float(total_profiled_s),
-            }
-
-        result = {"action": latents_action[0].detach().to(device="cpu", dtype=torch.float32)}
-        if timing_payload is not None:
-            result["timing"] = timing_payload
-        return result
-
     def _infer_action_ovis_native_dino(
         self,
         *,
@@ -5333,32 +3597,6 @@ class JAMPolicy(torch.nn.Module):
         if height % 16 != 0 or width % 16 != 0:
             raise ValueError(f"`input_image` spatial dims must be multiples of 16, got HxW=({height},{width})")
 
-        profile_requested = os.environ.get("JAM_PROFILE_OVIS_ACTION", "0") == "1"
-        profile_limit = int(os.environ.get("JAM_PROFILE_OVIS_ACTION_CALLS", "2"))
-        profile_call = int(getattr(self, "_ovis_action_profile_calls", 0))
-        profile_enabled = profile_requested and profile_call < profile_limit
-        if profile_requested:
-            self._ovis_action_profile_calls = profile_call + 1
-        profile_segments: list[tuple[str, float]] = []
-        profile_last = 0.0
-
-        def _sync_profile_device() -> None:
-            if profile_enabled and torch.device(self.device).type == "cuda":
-                torch.cuda.synchronize(torch.device(self.device))
-
-        def _mark_profile(name: str) -> None:
-            nonlocal profile_last
-            if not profile_enabled:
-                return
-            _sync_profile_device()
-            now = time.perf_counter()
-            profile_segments.append((name, now - profile_last))
-            profile_last = now
-
-        if profile_enabled:
-            _sync_profile_device()
-            profile_last = time.perf_counter()
-
         text_hidden, text_mask = self._prepare_ovis_u1_infer_text(prompt, input_image, context, context_mask)
         if self.proprio_encoder is not None or proprio is not None:
             text_hidden, text_mask = self._append_proprio_to_context_if_enabled(
@@ -5373,14 +3611,12 @@ class JAMPolicy(torch.nn.Module):
                 getattr(
                     self,
                     "external_ssl_action_fusion_type",
-                    "layerwise_mot",
+                    "",
                 )
             )
             in {
                 "native_dino12_mot",
-                "native_dino24_mot",
                 "native_dinov2_large24_mot",
-                "native_videomae12_mot",
             }
         ):
             return self._infer_action_ovis_native_dino(
@@ -5393,50 +3629,12 @@ class JAMPolicy(torch.nn.Module):
                 seed=seed,
                 rand_device=rand_device,
             )
-        _mark_profile("prepare_condition")
         input_image = input_image.to(device=self.device, dtype=self.torch_dtype)
-        external_ssl_fusion = str(
-            getattr(
-                self,
-                "external_ssl_action_fusion_type",
-                "layerwise_mot",
-            )
+        ref_tokens, ref_img_ids = self._encode_ovis_u1_image_tokens(
+            input_image,
+            time_value=1.0,
         )
-        layerwise_dino_action = (
-            bool(getattr(self, "external_ssl_enabled", False))
-            and external_ssl_fusion == "direct_layerwise_kv"
-        )
-        ref_layer_features = None
-        if bool(getattr(self, "external_ssl_enabled", False)):
-            from .ovis_u1_video_expert import OvisU1VideoExpert
-
-            ssl_student = getattr(self.mot, "ssl_student", None)
-            if ssl_student is None:
-                raise RuntimeError("External SSL inference is missing the SSL student.")
-            if layerwise_dino_action:
-                ref_tokens, ref_layer_features = ssl_student(
-                    input_image,
-                    output_hidden_states=True,
-                )
-            else:
-                ref_tokens = ssl_student(input_image)
-            ref_img_ids = OvisU1VideoExpert.build_img_ids(
-                batch_size=int(ref_tokens.shape[0]),
-                token_height=int(self.external_ssl_grid_size),
-                token_width=int(self.external_ssl_grid_size)
-                * int(self.external_ssl_num_views),
-                time_value=1.0,
-                device=ref_tokens.device,
-                dtype=ref_tokens.dtype,
-            )
-            empty_input_dim = int(self.external_ssl_hidden_size)
-        else:
-            ref_tokens, ref_img_ids = self._encode_ovis_u1_image_tokens(
-                input_image,
-                time_value=1.0,
-            )
-            empty_input_dim = int(self.video_expert.transformer.in_channels)
-        _mark_profile("encode_reference")
+        empty_input_dim = int(self.video_expert.transformer.in_channels)
         batch_size = int(ref_tokens.shape[0])
         empty_target = torch.empty(
             batch_size,
@@ -5470,55 +3668,21 @@ class JAMPolicy(torch.nn.Module):
             target_img_ids=empty_target_ids,
             ref_img_ids=ref_img_ids,
         )
-        _mark_profile("video_pre_dit")
-        direct_ssl_action = (
-            bool(getattr(self, "external_ssl_enabled", False))
-            and external_ssl_fusion
-            in {"direct_static_kv", "direct_layerwise_kv"}
+        prefix_attention_mask = self._build_mot_attention_mask_ovis_u1(
+            batch_size=batch_size,
+            txt_len=int(video_pre["txt_len"]),
+            target_len=int(video_pre["target_len"]),
+            cond_len=int(video_pre["cond_len"]),
+            action_len=0,
+            device=self.device,
+            text_attention_mask=video_pre["text_mask"],
         )
-        if direct_ssl_action:
-            image_layer_tokens = None
-            action_layer_map = None
-            if layerwise_dino_action:
-                if ref_layer_features is None:
-                    raise RuntimeError(
-                        "Layerwise DINO inference is missing hidden states."
-                    )
-                image_layer_tokens = (
-                    self._adapt_external_ssl_layer_features(
-                        ref_layer_features,
-                        final_adapted_features=video_pre["tokens"]["img"],
-                    )
-                )
-                action_layer_map = list(
-                    self.external_ssl_action_layer_map
-                )
-            video_kv_cache = self.mot.prefill_yak_direct_prefix_cache(
-                prefix_tokens=video_pre["tokens"],
-                prefix_freqs=video_pre["freqs"],
-                prefix_t_mod=video_pre["t_mod"],
-                image_layer_tokens=image_layer_tokens,
-                action_layer_map=action_layer_map,
-            )
-            _mark_profile("build_direct_prefix_cache")
-        else:
-            prefix_attention_mask = self._build_mot_attention_mask_ovis_u1(
-                batch_size=batch_size,
-                txt_len=int(video_pre["txt_len"]),
-                target_len=int(video_pre["target_len"]),
-                cond_len=int(video_pre["cond_len"]),
-                action_len=0,
-                device=self.device,
-                text_attention_mask=video_pre["text_mask"],
-            )
-            _mark_profile("build_prefix_mask")
-            video_kv_cache = self.mot.prefill_yak_video_cache(
-                video_tokens=video_pre["tokens"],
-                video_freqs=video_pre["freqs"],
-                video_t_mod=video_pre["t_mod"],
-                attention_mask=prefix_attention_mask,
-            )
-        _mark_profile("prefill_video_cache")
+        video_kv_cache = self.mot.prefill_yak_video_cache(
+            video_tokens=video_pre["tokens"],
+            video_freqs=video_pre["freqs"],
+            video_t_mod=video_pre["t_mod"],
+            attention_mask=prefix_attention_mask,
+        )
         full_attention_mask = self._build_mot_attention_mask_ovis_u1(
             batch_size=batch_size,
             txt_len=int(video_pre["txt_len"]),
@@ -5548,57 +3712,26 @@ class JAMPolicy(torch.nn.Module):
             dtype=latents_action.dtype,
             shift_override=sigma_shift,
         )
-        _mark_profile("prepare_action")
         for step_t_action, step_delta_action in zip(infer_timesteps_action, infer_deltas_action):
             timestep_action = step_t_action.expand(batch_size).to(dtype=latents_action.dtype, device=self.device)
             action_pre = self.action_expert.pre_dit(
                 action_tokens=latents_action,
                 timestep=self._scheduler_timestep_to_unit(timestep_action, self.infer_action_scheduler),
             )
-            if direct_ssl_action:
-                action_tokens = (
-                    self.mot.forward_yak_action_with_direct_prefix_cache(
-                        action_tokens=action_pre["tokens"],
-                        action_ids=action_pre["ids"],
-                        action_t_mod=action_pre["t_mod"],
-                        prefix_kv_cache=video_kv_cache,
-                        attention_mask=action_attention_mask,
-                    )
-                )
-            else:
-                action_tokens = self.mot.forward_action_with_video_cache(
-                    action_tokens=action_pre["tokens"],
-                    action_freqs=None,
-                    action_t_mod=action_pre["t_mod"],
-                    action_context_payload={"ids": action_pre["ids"]},
-                    video_kv_cache=video_kv_cache,
-                    attention_mask=action_attention_mask,
-                    video_seq_len=prefix_len,
-                )
+            action_tokens = self.mot.forward_action_with_video_cache(
+                action_tokens=action_pre["tokens"],
+                action_freqs=None,
+                action_t_mod=action_pre["t_mod"],
+                action_context_payload={"ids": action_pre["ids"]},
+                video_kv_cache=video_kv_cache,
+                attention_mask=action_attention_mask,
+                video_seq_len=prefix_len,
+            )
             pred_action = self.action_expert.post_dit(action_tokens, action_pre)
             latents_action = self.infer_action_scheduler.step(pred_action, step_delta_action, latents_action)
 
-        _mark_profile("action_denoise")
         action = latents_action.detach().to(device="cpu", dtype=torch.float32)
         result = {"action": action[0] if batch_size == 1 else action}
-        _mark_profile("copy_action_cpu")
-        if profile_enabled:
-            logger.info(
-                "Ovis action profile call=%d external_ssl=%s text=%s ref=%s "
-                "steps=%d student_device=%s segments=%s total=%.4fs",
-                profile_call + 1,
-                bool(getattr(self, "external_ssl_enabled", False)),
-                tuple(text_hidden.shape),
-                tuple(ref_tokens.shape),
-                int(num_inference_steps),
-                (
-                    str(next(self.mot.ssl_student.parameters()).device)
-                    if bool(getattr(self, "external_ssl_enabled", False))
-                    else "n/a"
-                ),
-                {name: round(value, 4) for name, value in profile_segments},
-                sum(value for _, value in profile_segments),
-            )
         return result
 
     @torch.no_grad()
@@ -5680,80 +3813,6 @@ class JAMPolicy(torch.nn.Module):
         return {"image": image[0].detach().cpu()}
 
     @torch.no_grad()
-    def infer_video_omnigen2(
-        self,
-        prompt: Optional[str],
-        input_image: torch.Tensor,
-        proprio: Optional[torch.Tensor] = None,
-        context: Optional[torch.Tensor] = None,
-        context_mask: Optional[torch.Tensor] = None,
-        num_inference_steps: int = 20,
-        sigma_shift: Optional[float] = None,
-        seed: Optional[int] = None,
-        rand_device: str = "cpu",
-    ) -> dict[str, Any]:
-        self.eval()
-        if input_image.ndim == 3:
-            input_image = input_image.unsqueeze(0)
-        if input_image.ndim != 4 or input_image.shape[0] != 1 or input_image.shape[1] != 3:
-            raise ValueError(f"`input_image` must be [1,3,H,W] or [3,H,W], got {tuple(input_image.shape)}")
-
-        text_hidden, text_mask = self._prepare_omnigen2_infer_text(prompt, context, context_mask)
-        if self.proprio_encoder is not None or proprio is not None:
-            text_hidden, text_mask = self._append_proprio_to_context_if_enabled(
-                context=text_hidden,
-                context_mask=text_mask,
-                proprio=proprio,
-                source="OmniGen2 video inference",
-            )
-        input_image = input_image.to(device=self.device, dtype=self.torch_dtype)
-        ref_latent = self._encode_omnigen2_image_latents(input_image)
-        generator = None if seed is None else torch.Generator(device=rand_device).manual_seed(seed)
-        latents_video = torch.randn(
-            ref_latent.shape,
-            generator=generator,
-            device=rand_device,
-            dtype=torch.float32,
-        ).to(device=self.device, dtype=self.torch_dtype)
-
-        video_only_mot = MoT({"video": self.video_expert}, mot_checkpoint_mixed_attn=False).to(self.device)
-        infer_timesteps, infer_deltas = self.infer_video_scheduler.build_inference_schedule(
-            num_inference_steps=num_inference_steps,
-            device=self.device,
-            dtype=latents_video.dtype,
-            shift_override=sigma_shift,
-        )
-        for step_t, step_delta in zip(infer_timesteps, infer_deltas):
-            timestep_video = step_t.expand(ref_latent.shape[0]).to(dtype=latents_video.dtype, device=self.device)
-            video_pre = self.video_expert.pre_dit(
-                x=latents_video,
-                timestep=timestep_video,
-                context=text_hidden,
-                context_mask=text_mask,
-                ref_image_hidden_states=ref_latent,
-            )
-            attention_mask = self._build_mot_attention_mask_omnigen2(
-                encoder_seq_lengths=video_pre["encoder_seq_lengths"],
-                seq_lengths=video_pre["seq_lengths"],
-                max_video_seq_len=video_pre["tokens"].shape[1],
-                action_seq_len=0,
-                l_effective_ref_img_len=video_pre["l_effective_ref_img_len"],
-                device=video_pre["tokens"].device,
-            )
-            tokens_out = video_only_mot(
-                embeds_all={"video": video_pre["tokens"]},
-                attention_mask=attention_mask,
-                freqs_all={"video": video_pre["freqs"]},
-                context_all={"video": None},
-                t_mod_all={"video": video_pre["t_mod"]},
-            )
-            pred_video = self.video_expert.post_dit(tokens_out["video"], video_pre)
-            latents_video = self.infer_video_scheduler.step(pred_video, step_delta, latents_video)
-
-        image = self._decode_omnigen2_image_latents(latents_video)
-        return {"image": image[0].detach().cpu()}
-
-    @torch.no_grad()
     def infer(
         self,
         prompt: Optional[str],
@@ -5805,53 +3864,6 @@ class JAMPolicy(torch.nn.Module):
                 "action": action_out["action"],
                 "video": [Image.fromarray(image)],
             }
-        if self.stack == "omnigen2":
-            if action_horizon is None:
-                raise ValueError("`action_horizon` is required for OmniGen2 action inference.")
-            action_out = self.infer_action_omnigen2(
-                prompt=prompt,
-                input_image=input_image,
-                action_horizon=action_horizon,
-                proprio=proprio,
-                context=context,
-                context_mask=context_mask,
-                num_inference_steps=num_inference_steps,
-                sigma_shift=sigma_shift,
-                seed=seed,
-                rand_device=rand_device,
-            )
-            video_out = self.infer_video_omnigen2(
-                prompt=prompt,
-                input_image=input_image,
-                proprio=proprio,
-                context=context,
-                context_mask=context_mask,
-                num_inference_steps=num_inference_steps,
-                sigma_shift=sigma_shift,
-                seed=seed,
-                rand_device=rand_device,
-            )
-            image = video_out["image"].detach().float().clamp(-1, 1)
-            image = ((image + 1.0) * 127.5).to(torch.uint8).permute(1, 2, 0).cpu().numpy()
-            return {
-                "action": action_out["action"],
-                "video": [Image.fromarray(image)],
-            }
-        if self.stack == "dim":
-            if action_horizon is None:
-                raise ValueError("`action_horizon` is required for DIM action inference.")
-            return self.infer_dim_separate(
-                prompt=prompt,
-                input_image=input_image,
-                action_horizon=action_horizon,
-                proprio=proprio,
-                context=context,
-                context_mask=context_mask,
-                num_inference_steps=num_inference_steps,
-                sigma_shift=sigma_shift,
-                seed=seed,
-                rand_device=rand_device,
-            )
         if self.stack == "flux2":
             if action_horizon is None:
                 raise ValueError("`action_horizon` is required for FLUX.2 action inference.")
@@ -5935,7 +3947,7 @@ class JAMPolicy(torch.nn.Module):
                     getattr(
                         self,
                         "external_ssl_action_fusion_type",
-                        "layerwise_mot",
+                        "",
                     )
                 ),
                 "action_layer_map": [
@@ -6024,14 +4036,12 @@ class JAMPolicy(torch.nn.Module):
                     getattr(
                         self,
                         "external_ssl_action_fusion_type",
-                        "layerwise_mot",
+                        "",
                     )
                 )
                 in {
                     "native_dino12_mot",
-                    "native_dino24_mot",
                     "native_dinov2_large24_mot",
-                    "native_videomae12_mot",
                 }
             ):
                 payload["external_ssl"]["native_action"] = {
@@ -6090,24 +4100,6 @@ class JAMPolicy(torch.nn.Module):
                         self.external_ssl_native_action_visual_tokens
                     ),
                 }
-        if (
-            bool(getattr(self, "foresight_enabled", False))
-            and str(getattr(self, "foresight_teacher_type", "yak"))
-            == "videomae_clip"
-        ):
-            payload["foresight_teacher"] = {
-                "type": "videomae_clip",
-                "model_id": str(self.foresight_teacher_model_id),
-                "mode": str(self.foresight_teacher_mode),
-                "random_seed": int(self.foresight_teacher_random_seed),
-                "clip_frames": int(self.foresight_teacher_clip_frames),
-                "grid_size": int(self.foresight_teacher_grid_size),
-                "hidden_size": int(self.foresight_teacher_hidden_dim),
-                "student_layer": int(self.foresight_layer),
-                "offsets": [int(offset) for offset in self.foresight_offsets],
-                "temporal_target": str(self.foresight_teacher_temporal_target),
-                "future_only": True,
-            }
         if checkpoint_format != "full":
             payload["checkpoint_format"] = checkpoint_format
             payload["save_trainable_only"] = bool(getattr(self, "save_trainable_only", False))
@@ -6223,13 +4215,13 @@ class JAMPolicy(torch.nn.Module):
                     f"teacher={saved_teacher_input!r}/{current_teacher_input!r}."
                 )
             saved_fusion = str(
-                saved_ssl.get("action_fusion_type", "layerwise_mot")
+                saved_ssl.get("action_fusion_type", "")
             )
             current_fusion = str(
                 getattr(
                     self,
                     "external_ssl_action_fusion_type",
-                    "layerwise_mot",
+                    "",
                 )
             )
             if saved_fusion != current_fusion:
@@ -6237,56 +4229,9 @@ class JAMPolicy(torch.nn.Module):
                     "External SSL checkpoint/model action fusion mismatch: "
                     f"saved={saved_fusion!r}, current={current_fusion!r}."
                 )
-            if current_fusion == "direct_layerwise_kv":
-                saved_num_layers = int(saved_ssl.get("num_layers", -1))
-                current_num_layers = int(self.external_ssl_num_layers)
-                saved_layer_map = [
-                    int(index)
-                    for index in saved_ssl.get("action_layer_map", [])
-                ]
-                current_layer_map = [
-                    int(index)
-                    for index in self.external_ssl_action_layer_map
-                ]
-                expected_layerwise = {
-                    "action_num_layers": int(
-                        self.external_ssl_action_num_layers
-                    ),
-                    "hidden_state_source": str(
-                        self.external_ssl_hidden_state_source
-                    ),
-                    "hidden_state_norm": str(
-                        self.external_ssl_hidden_state_norm
-                    ),
-                    "layer_map_algorithm": str(
-                        self.external_ssl_layer_map_algorithm
-                    ),
-                    "dense_token_selection": str(
-                        self.external_ssl_dense_token_selection
-                    ),
-                }
-                layerwise_mismatches = {
-                    key: (saved_ssl.get(key), value)
-                    for key, value in expected_layerwise.items()
-                    if saved_ssl.get(key) != value
-                }
-                if (
-                    saved_num_layers != current_num_layers
-                    or saved_layer_map != current_layer_map
-                    or layerwise_mismatches
-                ):
-                    raise ValueError(
-                        "External SSL layerwise checkpoint/model topology "
-                        "mismatch: "
-                        f"layers={saved_num_layers}/{current_num_layers}, "
-                        f"map={saved_layer_map}/{current_layer_map}, "
-                        f"metadata={layerwise_mismatches}."
-                    )
-            elif current_fusion in {
+            if current_fusion in {
                 "native_dino12_mot",
-                "native_dino24_mot",
                 "native_dinov2_large24_mot",
-                "native_videomae12_mot",
             }:
                 saved_native = saved_ssl.get("native_action")
                 if not isinstance(saved_native, dict):
@@ -6385,54 +4330,6 @@ class JAMPolicy(torch.nn.Module):
                         "Native DINO action checkpoint/model topology "
                         f"mismatch: {native_mismatches}."
                     )
-        saved_teacher = payload.get("foresight_teacher")
-        current_videomae_teacher = (
-            bool(getattr(self, "foresight_enabled", False))
-            and str(getattr(self, "foresight_teacher_type", "yak"))
-            == "videomae_clip"
-        )
-        if saved_teacher is not None and not current_videomae_teacher:
-            # LIBERO evaluation intentionally sets foresight.enabled=false:
-            # projector/teacher are training-only and infer_action() never
-            # reads them.  The core Ovis/Yak/Action topology remains identical,
-            # so loading while dropping the projector keys is valid.
-            logger.info(
-                "Checkpoint contains training-only VideoMAE foresight metadata; "
-                "current model has foresight disabled, so it will be ignored."
-            )
-        if saved_teacher is None and current_videomae_teacher:
-            raise ValueError(
-                "Current model expects a VideoMAE future-clip checkpoint but its "
-                "teacher topology metadata is missing."
-            )
-        if saved_teacher is not None and current_videomae_teacher:
-            # Checkpoints written before the random-VideoMAE ablation did not
-            # record mode/seed; they are unambiguously pretrained seed-42 runs.
-            saved_teacher = dict(saved_teacher)
-            saved_teacher.setdefault("mode", "frozen_pretrained")
-            saved_teacher.setdefault("random_seed", 42)
-            expected_teacher = {
-                "type": "videomae_clip",
-                "mode": str(self.foresight_teacher_mode),
-                "random_seed": int(self.foresight_teacher_random_seed),
-                "clip_frames": int(self.foresight_teacher_clip_frames),
-                "grid_size": int(self.foresight_teacher_grid_size),
-                "hidden_size": int(self.foresight_teacher_hidden_dim),
-                "student_layer": int(self.foresight_layer),
-                "offsets": [int(offset) for offset in self.foresight_offsets],
-                "temporal_target": str(self.foresight_teacher_temporal_target),
-                "future_only": True,
-            }
-            mismatches = {
-                key: (saved_teacher.get(key), value)
-                for key, value in expected_teacher.items()
-                if saved_teacher.get(key) != value
-            }
-            if mismatches:
-                raise ValueError(
-                    "VideoMAE foresight checkpoint/model topology mismatch: "
-                    f"{mismatches}."
-                )
         if "mot" in payload:
             mot_state = payload["mot"]
             if self.stack == "flux2":
@@ -6491,65 +4388,14 @@ class JAMPolicy(torch.nn.Module):
                 if name == "mask_token" or name.endswith(".mask_token"):
                     parameter.requires_grad_(False)
 
-            external_ssl_fusion = str(
-                getattr(
-                    self,
-                    "external_ssl_action_fusion_type",
-                    "layerwise_mot",
-                )
-            )
-            native_dino_action = external_ssl_fusion in {
-                "native_dino12_mot",
-                "native_dino24_mot",
-                "native_dinov2_large24_mot",
-                "native_videomae12_mot",
-            }
-            direct_ssl_action = external_ssl_fusion in {
-                "direct_static_kv",
-                "direct_layerwise_kv",
-            }
-            if native_dino_action:
-                # The native container owns only the DINO student, the
-                # ActionDiTDINO expert, and (during training) the projector.
-                # Yak remains available solely as part of the frozen Ovis
-                # condition stack and is never executed by this policy.
-                self.video_expert.eval()
-                self.video_expert.requires_grad_(False)
-                self.action_expert.train()
-                self.action_expert.requires_grad_(True)
-            elif direct_ssl_action:
-                # Direct DINO->Action keeps Yak's lightweight pretrained
-                # input/text/time/position adapters as a frozen conditioner,
-                # and never executes its 18 transformer blocks.  Freeze the
-                # whole registered video expert so no Yak parameter silently
-                # consumes optimizer/ZeRO state; the DINO input adapter is
-                # re-enabled below.
-                self.video_expert.eval()
-                self.video_expert.requires_grad_(False)
-                for block in self.action_expert.double_blocks:
-                    # Direct prefix K/V uses txt_mod, txt_norm1, and the
-                    # txt_attn QKV/QK-norm.  Its text output projection and MLP
-                    # never execute, so keep those copied checkpoint weights
-                    # registered but out of the optimizer.
-                    block.txt_attn.norm.query_norm.requires_grad_(False)
-                    block.txt_attn.proj.requires_grad_(False)
-                    block.txt_mlp.requires_grad_(False)
-
-            # These official Ovis modules are bypassed by every SSL
-            # action-only path.  Keep them registered for checkpoint
-            # compatibility, but exclude them from the optimizer.
-            if not native_dino_action:
-                self.video_expert.transformer.img_in.requires_grad_(False)
-                self.video_expert.transformer.final_layer.requires_grad_(False)
-                external_img_in = getattr(
-                    self.video_expert,
-                    "external_ssl_img_in",
-                    None,
-                )
-                if external_img_in is None:
-                    raise RuntimeError("External SSL Yak input adapter is missing.")
-                external_img_in.train()
-                external_img_in.requires_grad_(True)
+            # The native container owns only the DINO student, the
+            # ActionDiTDINO expert, and (during training) the projector.
+            # Yak remains available solely as part of the frozen Ovis
+            # condition stack and is never executed by this policy.
+            self.video_expert.eval()
+            self.video_expert.requires_grad_(False)
+            self.action_expert.train()
+            self.action_expert.requires_grad_(True)
 
         if self.stack != "flux2":
             return

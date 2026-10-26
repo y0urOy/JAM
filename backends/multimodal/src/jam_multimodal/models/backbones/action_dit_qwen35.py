@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import copy
 import math
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from typing import Optional, Sequence
 
 import torch
@@ -12,10 +12,8 @@ import torch.utils.checkpoint
 
 
 QWEN_ACTION_ATTENTION_CAUSAL = "causal"
-QWEN_ACTION_ATTENTION_PREFIX_LM_BIDIRECTIONAL = "prefix_lm_bidirectional_action"
 QWEN_ACTION_ATTENTION_MODES = {
     QWEN_ACTION_ATTENTION_CAUSAL,
-    QWEN_ACTION_ATTENTION_PREFIX_LM_BIDIRECTIONAL,
 }
 
 
@@ -44,34 +42,13 @@ class ActionDiTQwen35Native(nn.Module):
 
     At layer ``i`` the corresponding trainable policy-Qwen prefix is placed
     before the noisy action tokens.  The visual/text prefix never reads action
-    tokens.  Two action-suffix modes are supported:
-
-      * ``causal`` exactly preserves Qwen's decoder mask, so an action token
-        reads the complete prefix and earlier actions;
-      * ``prefix_lm_bidirectional_action`` keeps the 18 GatedDeltaNet blocks
-        causal, but lets action queries in all six full-attention blocks read
-        the complete prefix and every action token.  This gives the joint
-        flow-matching action chunk periodic all-to-all mixing without allowing
-        noisy actions to modify the policy-Qwen prefix.
+    tokens.  The ``causal`` action-suffix mode exactly preserves Qwen's decoder
+    mask, so an action token reads the complete prefix and earlier actions.
 
     Action input, action position, diffusion-time embedding, proprio projection
     (owned by the policy wrapper), and action output head are action-specific and
     newly initialized, matching the initialization convention of the native
-    DINO/VideoMAE action ports.
-
-    With ``shares_backbone_weights=True`` the action stream does not own block
-    copies: ``blocks``, ``rotary_emb`` and ``final_norm`` are the policy Qwen's
-    own modules, so there is no separate action expert.  Everything else is
-    unchanged, including the layer alignment (action block ``i`` reads the
-    policy's layer-``i`` prefix output), so a shared-weight run differs from the
-    MoT policy only in whether the action rows use their own weights.
-
-    ``single_stream=True`` (requires shared weights and causal attention) turns
-    this into the literal single-pass model: the wrapper feeds each block the
-    policy's layer INPUT, and the proprio token travels with the action rows as
-    an evolving suffix token instead of being re-inserted at every layer.  The
-    action rows then see exactly the keys/values of one causal Qwen forward over
-    [prefix; proprio; actions].
+    DINO action ports.
     """
 
     FAMILY = "ActionDiTQwen35Native24"
@@ -91,19 +68,9 @@ class ActionDiTQwen35Native(nn.Module):
         action_attention_mode: str = QWEN_ACTION_ATTENTION_CAUSAL,
         skip_discarded_prefix_mlp: bool = True,
         skip_discarded_prefix_query: bool = False,
-        shares_backbone_weights: bool = False,
-        single_stream: bool = False,
     ) -> None:
         super().__init__()
         blocks = tuple(blocks)
-        # True when ``blocks``/``rotary_emb``/``final_norm`` are the policy
-        # Qwen's own modules rather than independent copies.
-        self.shares_backbone_weights = bool(shares_backbone_weights)
-        # Literal single-pass variant: prefix = layer inputs (set by the
-        # wrapper) and the proprio token evolves with the action suffix.
-        self.single_stream = bool(single_stream)
-        if self.single_stream and not self.shares_backbone_weights:
-            raise ValueError("single_stream requires shares_backbone_weights=True.")
         if not blocks:
             raise ValueError("Qwen native action expert requires at least one block.")
 
@@ -138,11 +105,6 @@ class ActionDiTQwen35Native(nn.Module):
                 f"{sorted(QWEN_ACTION_ATTENTION_MODES)}, got "
                 f"{action_attention_mode!r}."
             )
-        if (
-            self.single_stream
-            and self.action_attention_mode != QWEN_ACTION_ATTENTION_CAUSAL
-        ):
-            raise ValueError("single_stream requires the causal action attention mode.")
         self.layer_types = tuple(str(kind) for kind in text_config.layer_types)
         self.num_layers = len(blocks)
 
@@ -201,8 +163,6 @@ class ActionDiTQwen35Native(nn.Module):
         action_attention_mode: str = QWEN_ACTION_ATTENTION_CAUSAL,
         skip_discarded_prefix_mlp: bool = True,
         skip_discarded_prefix_query: bool = False,
-        share_backbone_weights: bool = False,
-        single_stream: bool = False,
         device: str | torch.device = "cpu",
         torch_dtype: Optional[torch.dtype] = None,
     ) -> "ActionDiTQwen35Native":
@@ -222,20 +182,11 @@ class ActionDiTQwen35Native(nn.Module):
                 "config.text_config."
             )
 
-        share_backbone_weights = bool(share_backbone_weights)
-        if share_backbone_weights:
-            # Shared-weight ablation: the action stream reuses the policy
-            # Qwen's own decoder blocks, rotary embedding and final norm, so
-            # there is no separate action expert and no extra block parameters.
-            blocks = list(source_blocks)
-            rotary_emb = source_rotary
-            final_norm = source_norm
-        else:
-            # deepcopy is intentional: action and visual weights start equal
-            # but must be independently trainable after initialization.
-            blocks = [copy.deepcopy(block) for block in source_blocks]
-            rotary_emb = copy.deepcopy(source_rotary)
-            final_norm = copy.deepcopy(source_norm)
+        # deepcopy is intentional: action and visual weights start equal
+        # but must be independently trainable after initialization.
+        blocks = [copy.deepcopy(block) for block in source_blocks]
+        rotary_emb = copy.deepcopy(source_rotary)
+        final_norm = copy.deepcopy(source_norm)
         action = cls(
             blocks=blocks,
             rotary_emb=rotary_emb,
@@ -249,8 +200,6 @@ class ActionDiTQwen35Native(nn.Module):
             action_attention_mode=action_attention_mode,
             skip_discarded_prefix_mlp=skip_discarded_prefix_mlp,
             skip_discarded_prefix_query=skip_discarded_prefix_query,
-            shares_backbone_weights=share_backbone_weights,
-            single_stream=single_stream,
         )
         if torch_dtype is None:
             torch_dtype = next(backbone.parameters()).dtype
@@ -437,62 +386,6 @@ class ActionDiTQwen35Native(nn.Module):
         ).masked_fill(~allowed, torch.finfo(dtype).min)
 
     @staticmethod
-    def _build_full_prefix_lm_mask(
-        valid_mask: torch.Tensor,
-        action_indices: torch.Tensor,
-        *,
-        dtype: torch.dtype,
-    ) -> torch.Tensor:
-        """Keep the prefix causal while making the action suffix all-to-all.
-
-        ``action_indices`` is per-sample because right-padded Qwen prefixes can
-        have different lengths.  Action queries may read every valid prefix,
-        proprio, and action key; non-action prefix queries retain Qwen's causal
-        decoder mask and therefore never read the noisy action suffix.
-        """
-
-        if valid_mask.ndim != 2:
-            raise ValueError(
-                f"valid_mask must be [B,L], got {tuple(valid_mask.shape)}."
-            )
-        if action_indices.ndim != 2 or int(action_indices.shape[0]) != int(
-            valid_mask.shape[0]
-        ):
-            raise ValueError(
-                "action_indices must be [B,A] with the same batch as valid_mask, "
-                f"got {tuple(action_indices.shape)} vs {tuple(valid_mask.shape)}."
-            )
-
-        batch_size, seq_len = map(int, valid_mask.shape)
-        ActionDiTQwen35Native._assert_scalar(
-            ~((action_indices < 0) | (action_indices >= seq_len)).any(),
-            f"action_indices must lie in [0,{seq_len}).",
-        )
-
-        indices = torch.arange(seq_len, device=valid_mask.device)
-        causal = indices[None, :] <= indices[:, None]
-        allowed = causal[None, None] & valid_mask[:, None, None, :]
-
-        action_queries = torch.zeros(
-            (batch_size, seq_len), device=valid_mask.device, dtype=torch.bool
-        )
-        action_queries.scatter_(1, action_indices, True)
-        allowed |= (
-            action_queries[:, None, :, None]
-            & valid_mask[:, None, None, :]
-        )
-
-        query_valid = valid_mask[:, None, :, None]
-        allowed &= query_valid
-        padding_queries = ~query_valid.squeeze(-1)
-        allowed[:, :, :, 0] |= padding_queries
-        return torch.zeros(
-            (batch_size, 1, seq_len, seq_len),
-            device=valid_mask.device,
-            dtype=dtype,
-        ).masked_fill(~allowed, torch.finfo(dtype).min)
-
-    @staticmethod
     def _build_action_suffix_causal_mask(
         valid_mask: torch.Tensor,
         action_indices: torch.Tensor,
@@ -508,24 +401,6 @@ class ActionDiTQwen35Native(nn.Module):
         ) & valid_mask[:, None, :]
         return torch.zeros(
             (*allowed.shape[:2], seq_len),
-            device=valid_mask.device,
-            dtype=dtype,
-        ).masked_fill(~allowed, torch.finfo(dtype).min)[:, None]
-
-    @staticmethod
-    def _build_action_suffix_prefix_lm_mask(
-        valid_mask: torch.Tensor,
-        action_indices: torch.Tensor,
-        *,
-        dtype: torch.dtype,
-    ) -> torch.Tensor:
-        """Build action-query rows for prefix-LM (all valid keys allowed)."""
-
-        allowed = valid_mask[:, None, :].expand(
-            -1, int(action_indices.shape[1]), -1
-        )
-        return torch.zeros(
-            allowed.shape,
             device=valid_mask.device,
             dtype=dtype,
         ).masked_fill(~allowed, torch.finfo(dtype).min)[:, None]
@@ -1050,17 +925,6 @@ class ActionDiTQwen35Native(nn.Module):
         condition: Qwen35ActionCondition,
     ) -> torch.Tensor:
         action_hidden = self._embed_action(action_tokens, timestep)
-        # Single-stream: the proprio token is the first evolving suffix row
-        # (same position as the MoT's per-layer proprio slot) and is dropped
-        # before the action head.
-        suffix_offset = 0
-        if self.single_stream and condition.proprio_token is not None:
-            action_hidden = torch.cat(
-                (condition.proprio_token.to(dtype=action_hidden.dtype), action_hidden),
-                dim=1,
-            )
-            condition = replace(condition, proprio_token=None)
-            suffix_offset = 1
         batch_size, action_len = map(int, action_hidden.shape[:2])
         if int(condition.prefix_attention_mask.shape[0]) != batch_size:
             raise ValueError(
@@ -1093,22 +957,6 @@ class ActionDiTQwen35Native(nn.Module):
             else:
                 full_attention_mask = self._build_full_causal_mask(
                     valid_mask,
-                    dtype=action_hidden.dtype,
-                )
-        elif (
-            self.action_attention_mode
-            == QWEN_ACTION_ATTENTION_PREFIX_LM_BIDIRECTIONAL
-        ):
-            if self.skip_discarded_prefix_mlp:
-                full_attention_mask = self._build_action_suffix_prefix_lm_mask(
-                    valid_mask,
-                    action_indices,
-                    dtype=action_hidden.dtype,
-                )
-            else:
-                full_attention_mask = self._build_full_prefix_lm_mask(
-                    valid_mask,
-                    action_indices,
                     dtype=action_hidden.dtype,
                 )
         else:  # guarded in __init__; retain a loud failure for loaded objects.
@@ -1153,7 +1001,7 @@ class ActionDiTQwen35Native(nn.Module):
                 )
                 action_hidden = self._gather_action(packed, action_indices)
 
-        return self.head(self.final_norm(action_hidden[:, suffix_offset:]))
+        return self.head(self.final_norm(action_hidden))
 
     def forward(
         self,
@@ -1173,5 +1021,4 @@ __all__ = [
     "Qwen35ActionCondition",
     "QWEN_ACTION_ATTENTION_CAUSAL",
     "QWEN_ACTION_ATTENTION_MODES",
-    "QWEN_ACTION_ATTENTION_PREFIX_LM_BIDIRECTIONAL",
 ]

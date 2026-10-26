@@ -42,7 +42,7 @@ def _make_tiny_models() -> tuple[DenseImageSSLBackbone, ActionDiTDino12]:
         hidden_size=32,
         num_hidden_layers=2,
         num_attention_heads=4,
-        mlp_ratio=2.0,
+        mlp_ratio=2,
         hidden_dropout_prob=0.0,
         attention_probs_dropout_prob=0.0,
         drop_path_rate=0.0,

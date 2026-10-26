@@ -4,7 +4,7 @@ RobotWin single-task evaluation entrypoint (Hydra).
 Features:
 - Read `configs/sim_robotwin.yaml`.
 - Check or create the symlink:
-  `RoboTwin/policy/jam_multimodal -> experiments/robotwin/jam_multimodal`.
+  `RoboTwin/policy/jam_policy -> experiments/robotwin/jam_policy`.
 - Forward config overrides to the official RoboTwin entrypoint
   `script/eval_policy.py` and save logs.
 
@@ -29,6 +29,7 @@ Examples:
      gpu_id=0
 """
 
+import importlib.metadata
 import os
 import subprocess
 import sys
@@ -148,8 +149,22 @@ def _append_override(overrides: list[str], key: str, value: Any, *, skip_none: b
     overrides.extend([f"--{key}", _format_override_value(value)])
 
 
+def _require_paper_sapien() -> None:
+    """RoboTwin 2.0 success rates are comparable only under SAPIEN 3.0.0b1."""
+    try:
+        version = importlib.metadata.version("sapien")
+    except importlib.metadata.PackageNotFoundError:
+        raise SystemExit("SAPIEN is not installed; see docs/INSTALL.md.") from None
+    if version != "3.0.0b1" and os.environ.get("JAM_ALLOW_SAPIEN_VERSION") != version:
+        raise SystemExit(
+            f"RoboTwin evaluation expects SAPIEN 3.0.0b1, found {version}; other versions give "
+            f"success rates that are not comparable. Set JAM_ALLOW_SAPIEN_VERSION={version} to run anyway."
+        )
+
+
 @hydra.main(version_base="1.3", config_path="../../configs", config_name="sim_robotwin.yaml")
 def main(cfg: DictConfig):
+    _require_paper_sapien()
     if cfg.ckpt is None:
         raise ValueError("`ckpt` must not be None.")
     if cfg.EVALUATION.task_name is None:
@@ -262,7 +277,11 @@ def main(cfg: DictConfig):
     ]
 
     env = os.environ.copy()
-    env["CUDA_VISIBLE_DEVICES"] = str(cfg.gpu_id)
+    # gpu_id indexes the GPUs this process may use (the inherited CUDA_VISIBLE_DEVICES list).
+    visible = [x.strip() for x in env.get("CUDA_VISIBLE_DEVICES", "").split(",") if x.strip()]
+    if visible and not 0 <= int(cfg.gpu_id) < len(visible):
+        raise ValueError(f"gpu_id {cfg.gpu_id} is outside CUDA_VISIBLE_DEVICES={visible}.")
+    env["CUDA_VISIBLE_DEVICES"] = visible[int(cfg.gpu_id)] if visible else str(cfg.gpu_id)
     env["PYTHONUNBUFFERED"] = "1"
 
     with open(log_file, "w", encoding="utf-8") as log_f:

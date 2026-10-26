@@ -21,14 +21,22 @@
   Future observations supervise training. No image or video generation is needed.
 </p>
 
+The vision-language-action (VLA) and world-action model (WAM) communities debate whether a policy should inherit
+pretrained knowledge from a vision-language model or from a visual generator. The debate bundles three separable choices: the
+backbone initialization, the objective applied to future observations, and whether the machinery for that objective
+is kept at inference. **Just Action Models (JAM)** decouple them: a pretrained visual backbone with an action expert,
+trained with an action loss and a foresight loss. The foresight loss trains current-observation features to predict
+frozen encodings of the recorded future through a prediction head that is discarded after training, so no visual
+generation is involved in training or inference, and the backbone can be chosen freely. JAM outperforms its matched
+FastWAM and ImageWAM counterparts on LIBERO and LIBERO-Plus, is on par or slightly better on RoboTwin 2.0, and with
+cached foresight targets uses 73% fewer estimated online training FLOPs per sample per update than FastWAM.
+
 This repository contains the training and evaluation code for JAM on [LIBERO](https://github.com/Lifelong-Robot-Learning/LIBERO),
-[LIBERO-Plus](https://github.com/sylvestf/LIBERO-plus) and [RoboTwin 2.0](https://github.com/RoboTwin-Platform/RoboTwin).
-JAM trains a pretrained backbone and an action expert with a foresight loss: a small head predicts frozen
-features of the recorded future from the current frame. No image or video is generated in training or at
-deployment. The code covers five backbones: [Wan2.2](https://github.com/Wan-Video/Wan2.2), built on
-[FastWAM](https://github.com/yuantianyuan01/FastWAM), and [Ovis-U1](https://github.com/ATH-MaaS/Ovis-U1),
-[FLUX.2](https://github.com/black-forest-labs/flux2), [Qwen3.5-2B](https://github.com/QwenLM/Qwen3.5) and
-[DINOv2-B/L](https://github.com/facebookresearch/dinov2), built on [ImageWAM](https://github.com/yuyangalin/ImageWAM).
+[LIBERO-Plus](https://github.com/sylvestf/LIBERO-plus) and [RoboTwin 2.0](https://github.com/RoboTwin-Platform/RoboTwin),
+for five backbones: [Wan2.2](https://github.com/Wan-Video/Wan2.2), built on [FastWAM](https://github.com/yuantianyuan01/FastWAM),
+and [Ovis-U1](https://github.com/ATH-MaaS/Ovis-U1), [FLUX.2](https://github.com/black-forest-labs/flux2),
+[Qwen3.5-2B](https://huggingface.co/Qwen/Qwen3.5-2B-Base) and [DINOv2-B/L](https://github.com/facebookresearch/dinov2),
+built on [ImageWAM](https://github.com/yuyangalin/ImageWAM).
 
 <p align="center">
   <img src="website/assets/figures/fig2_method.png" alt="JAM: future-feature supervision during training; backbone and action expert at deployment" width="100%">
@@ -56,40 +64,37 @@ JAM/
 │   └── multimodal/           # JAM (Ovis-U1, FLUX.2, Qwen3.5, DINOv2), built on ImageWAM
 ├── tools/
 │   ├── jam.py                # Train, evaluate and summarize any named recipe
-│   ├── bootstrap.py          # Create the pinned environment of a backbone family
+│   ├── bootstrap.py          # Create the pinned environment
 │   ├── download_assets.py    # Base models and datasets at pinned revisions
 │   ├── init_actions.py       # Build the action-expert initialization
-│   ├── setup_simulators.py   # LIBERO and LIBERO-Plus checkouts
-│   └── paired_statistics.py  # Task-level bootstrap and McNemar tests
-├── environments/             # Pinned dependencies: wan, ovis, flux, qwen
-├── reproduction/             # 48 named recipes, LIBERO-Plus task list, checkpoint manifest
+│   └── setup_simulators.py   # LIBERO, LIBERO-Plus and RoboTwin simulator setup
+├── environments/             # Pinned dependencies of the shared environment
+├── reproduction/             # The ten JAM recipes, LIBERO-Plus task list, checkpoint manifest
 ├── third_party/RoboTwin/     # RoboTwin 2.0 evaluation code
-├── docs/                     # Installation, data, training, evaluation, analyses
-├── paper/                    # The paper's tables and figure definitions
+├── docs/                     # Installation, data, training, evaluation
 ├── website/                  # Project page
 └── tests/                    # CPU tests
 ```
 
 ## Environment Setup
 
-Each backbone family has its own pinned environment, because the backbones need different Transformers
-versions. Use Python 3.10:
+The ten recipes share one pinned environment. Use Python 3.10:
 
-| Policy | Recipe | Environment |
+| Policy | LIBERO recipe | RoboTwin 2.0 recipe |
 |---|---|---|
-| JAM (Wan) | `wan-jam` | `wan` |
-| JAM (Ovis-U1) | `ovis-jam` | `ovis` |
-| JAM (DINOv2-B / L) | `dino-b-jam` / `dino-l-jam` | `ovis` |
-| JAM (Qwen3.5-2B) | `qwen-jam` | `qwen` |
-| JAM (FLUX.2) | `flux-jam-libero` | `flux` |
+| JAM (Wan) | `wan-jam` | `robotwin-wan-jam` |
+| JAM (Ovis-U1) | `ovis-jam` | `robotwin-ovis-jam` |
+| JAM (FLUX.2) | `flux-jam-libero` | `robotwin-flux-jam` |
+| JAM (Qwen3.5-2B) | `qwen-jam` | `robotwin-qwen-jam` |
+| JAM (DINOv2-B / L) | `dino-b-jam` / `dino-l-jam` | |
 
 ```bash
-python3.10 tools/bootstrap.py wan --venv .venv-wan --libero
-python3.10 tools/bootstrap.py ovis --venv .venv-ovis --libero
+python3.10 tools/bootstrap.py --venv .venv --libero
+source .venv/bin/activate
 ```
 
-`--libero` also installs the LIBERO runtime. See [docs/INSTALL.md](docs/INSTALL.md) for the versions and the
-optional Qwen kernels.
+`--libero` also installs the LIBERO runtime. See [docs/INSTALL.md](docs/INSTALL.md) for the versions and for
+building flash-attn and causal-conv1d.
 
 ## Model Preparation
 
@@ -99,8 +104,8 @@ Download the base models at their pinned revisions. They go to `artifacts/models
 |---|---|
 | Wan | `wan`, `wan-tokenizer` |
 | Ovis-U1 | `ovis` |
-| Qwen3.5-2B | `qwen-2b` (`qwen-4b` for the 4B ablation) |
-| DINOv2-B / L | `dino-b` / `dino-l`, `qwen3` |
+| Qwen3.5-2B | `qwen-2b` |
+| DINOv2-B / L | `dino-b` / `dino-l`, `qwen3`, `ovis` |
 | FLUX.2 | `flux`, `flux-ae`, `qwen3` |
 
 ```bash
@@ -108,10 +113,13 @@ python tools/download_assets.py wan
 python tools/download_assets.py wan-tokenizer
 ```
 
+`flux-ae` comes from the gated FLUX.2-dev repository (FLUX non-commercial license): accept its terms on Hugging Face
+and log in (`HF_TOKEN` or the Hugging Face CLI) before downloading it.
+
 Training also needs the action-expert initialization (DINOv2 and Qwen3.5 initialize from their own backbone):
 
 ```bash
-python tools/init_actions.py wan
+python tools/init_actions.py wan                    # CUDA GPU
 python tools/init_actions.py ovis --action-dim 7    # 14 for RoboTwin
 python tools/init_actions.py flux --action-dim 7    # 14 for RoboTwin
 ```
@@ -133,13 +141,21 @@ artifacts/data/
 ├── libero_mujoco3.3.2/libero_{spatial,object,goal,10}_no_noops_lerobot/
 └── robotwin2.0/
     ├── robotwin2.0/{data,meta,videos}/
+    ├── robotwin2.0/nonidle_ranges.json
     └── dataset_stats.json
 ```
 
-Fetch the simulators with `python tools/setup_simulators.py libero` and `python tools/setup_simulators.py plus`.
-Their assets and initial states come from the upstream projects. `third_party/RoboTwin/` holds the RoboTwin 2.0
-evaluation code; install its environment and assets from an upstream checkout, as described in
-[docs/INSTALL.md](docs/INSTALL.md).
+The Ovis-U1, Qwen3.5 and FLUX.2 RoboTwin recipes train on non-idle frames; build their frame ranges once:
+
+```bash
+python backends/multimodal/scripts/data/compute_robotwin_nonidle_ranges.py artifacts/data/robotwin2.0/robotwin2.0 \
+  --output artifacts/data/robotwin2.0/robotwin2.0/nonidle_ranges.json
+```
+
+Prepare the simulators with `python tools/setup_simulators.py libero`, and with
+`python tools/download_assets.py libero-plus-assets` followed by `python tools/setup_simulators.py plus`.
+`third_party/RoboTwin/` holds the RoboTwin 2.0 evaluation code; install its simulator packages (SAPIEN 3.0.0b1) and
+assets as described in [docs/INSTALL.md](docs/INSTALL.md).
 
 ## Inference with Released Checkpoints
 
@@ -155,8 +171,7 @@ Their recorded results:
 LIBERO: 40 tasks × 50 episodes. LIBERO-Plus: the fixed 1,506-task subset, one episode per task, task-weighted.
 
 ```bash
-pip install -U huggingface_hub
-huggingface-cli download y0urOy/JAM --include "libero/wan/*" --local-dir ./checkpoints/jam_release
+python -c "from huggingface_hub import snapshot_download; snapshot_download('y0urOy/JAM', allow_patterns='libero/wan/*', local_dir='checkpoints/jam_release')"
 python checkpoints/jam_release/libero/wan/release.py verify
 ```
 
@@ -173,30 +188,33 @@ lists their SHA256 checksums and inference settings.
 ```bash
 python tools/jam.py list
 python tools/jam.py text-cache wan-jam    # instruction cache (Wan, FLUX.2 and DINOv2 recipes)
-python tools/jam.py train-eval wan-jam --venv .venv-wan \
+python tools/jam.py train-eval wan-jam --venv .venv \
   --gpus-per-node 8 --gpus 0,1 --benchmarks libero plus \
   --output artifacts/runs/wan-jam
+python tools/jam.py train-eval robotwin-wan-jam --venv .venv \
+  --nodes 8 --gpus-per-node 8 --node-rank 0 --master-addr HOST0 --benchmarks robotwin \
+  --output artifacts/runs/robotwin-wan-jam
 ```
 
 `train-eval` trains one model, then evaluates its final checkpoint, and stops on any failure. The launcher keeps the recipe's
-global batch on any GPU layout (`--micro-batch` fits memory, `--nodes`/`--node-rank`/`--master-addr` run
-multi-node), and `--dry-run` prints the plan without running it. See [docs/TRAINING.md](docs/TRAINING.md) for
-training budgets and the precomputed foresight-target cache.
+global batch on any GPU layout that divides it (`--micro-batch` fits memory, `--nodes`/`--node-rank`/`--master-addr`
+run multi-node), and `--dry-run` prints the plan without running it. See [docs/TRAINING.md](docs/TRAINING.md) for
+training budgets and [docs/DATA_AND_MODELS.md](docs/DATA_AND_MODELS.md) for the instruction caches and the optional
+Wan foresight-target cache.
 
 ## Inference with Your Trained Checkpoints
 
 A run directory remembers its recipe, overrides and normalization statistics:
 
 ```bash
-python tools/jam.py eval --run-dir artifacts/runs/wan-jam --venv .venv-wan --benchmark libero --gpus 0,1
-python tools/jam.py eval --run-dir artifacts/runs/wan-jam --venv .venv-wan --benchmark plus --gpus 0,1
-python tools/jam.py eval --run-dir artifacts/runs/robotwin-wan-jam --venv .venv-wan --benchmark robotwin --gpus 0
+python tools/jam.py eval --run-dir artifacts/runs/wan-jam --venv .venv --benchmark libero --gpus 0,1
+python tools/jam.py eval --run-dir artifacts/runs/wan-jam --venv .venv --benchmark plus --gpus 0,1
+python tools/jam.py eval --run-dir artifacts/runs/robotwin-wan-jam --venv .venv --benchmark robotwin --gpus 0
 ```
 
-LIBERO and LIBERO-Plus results are written as `summary.json` and `summary.csv`, with per-episode `episodes.csv`
-for `tools/paired_statistics.py`. RoboTwin 2.0 uses 50 tasks × 100 episodes in Clean and Randomized settings. See
-[docs/EVALUATION.md](docs/EVALUATION.md) for the protocols and [docs/ANALYSES.md](docs/ANALYSES.md) for the
-future-frame probes, attention maps and compute profiling.
+LIBERO and LIBERO-Plus results are written as `summary.json`, `summary.csv` and per-episode `episodes.csv`. RoboTwin
+2.0 uses 50 tasks × 100 episodes in Clean and Randomized settings and writes its own `summary.json` and `summary.csv`.
+See [docs/EVALUATION.md](docs/EVALUATION.md) for the protocols.
 
 ## Acknowledgements
 
@@ -209,7 +227,7 @@ for releasing their code, data and assets.
 ## License
 
 JAM additions are released under the [MIT License](LICENSE). Code from FastWAM, ImageWAM, RoboTwin, LeRobot,
-Ovis-U1 and FLUX.2 keeps its own license; see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md). Model weights,
+PyTorch3D, NVIDIA, Ovis-U1 and FLUX.2 keeps its own license; see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md). Model weights,
 datasets and simulator assets keep their own terms.
 
 ## BibTeX

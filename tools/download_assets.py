@@ -1,10 +1,25 @@
 #!/usr/bin/env python3
 """Download one explicitly selected public asset from a pinned official source."""
 from __future__ import annotations
-import argparse,json,os
+import argparse,hashlib,json,os
 from pathlib import Path
 
 ROOT=Path(__file__).resolve().parents[1]
+
+def sha256(path):
+    digest=hashlib.sha256()
+    with Path(path).open('rb') as source:
+        for chunk in iter(lambda:source.read(4 << 20),b''):digest.update(chunk)
+    return digest.hexdigest()
+
+def verify_files(directory,checks):
+    """Verify the recorded archive bytes without importing a model runtime."""
+    for name,expected in checks.items():
+        path=Path(directory)/name
+        if not path.is_file():raise ValueError(f'Missing asset: {path}')
+        if path.stat().st_size!=expected['bytes'] or sha256(path)!=expected['sha256']:
+            raise ValueError(f'Asset checksum mismatch: {path}; remove this file and download the pinned asset again.')
+
 def main():
     p=argparse.ArgumentParser(description=__doc__)
     p.add_argument('asset');p.add_argument('--model-root');p.add_argument('--data-root')
@@ -20,6 +35,9 @@ def main():
     if a.dry_run:print(json.dumps(kwargs,indent=2));return
     from huggingface_hub import snapshot_download
     snapshot_download(**kwargs)
+    verify_files(kwargs['local_dir'],item.get('files',{}))
     print('Downloaded',item['repo_id'],'at',item['revision'],'to',kwargs['local_dir'])
     print('Dataset archives require extraction; see docs/DATA_AND_MODELS.md.')
-if __name__=='__main__':main()
+if __name__=='__main__':
+    try:main()
+    except (OSError,ValueError) as error:raise SystemExit(str(error)) from None

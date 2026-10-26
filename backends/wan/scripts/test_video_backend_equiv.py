@@ -22,7 +22,7 @@ from jam_wan.utils.config_resolvers import register_default_resolvers  # noqa: E
 
 register_default_resolvers()
 
-TASK = "libero_bplus_na_downpred118_lam06_single18_2cam224_1e-4"
+TASK = "libero_bplus_na_downpred118_lam06_s18_vae_off12_2cam224_1e-4"
 
 
 def build(backend):

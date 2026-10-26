@@ -3,7 +3,7 @@
 
 Example:
     torchrun --standalone --nproc_per_node=8 scripts/flux2/precompute_flux2_qwen3_embeds.py \
-        task=libero_flux2_jam \
+        task=libero_flux2_klein_4b_base_jam_foresight \
         data.train.dataset_dirs=[...] \
         data.train.qwen_text_cache_dir=./qwen3_flux2_cache \
         data.train.qwen_context_len=512 \
@@ -173,8 +173,6 @@ def _variant_to_model_spec(variant: str) -> str:
     key = str(variant).lower().replace("_", "-")
     if key in {"klein-base-4b", "flux.2-klein-base-4b", "4b", "base-4b"}:
         return "Qwen/Qwen3-4B"
-    if key in {"klein-base-9b", "flux.2-klein-base-9b", "9b", "base-9b"}:
-        return "Qwen/Qwen3-8B"
     raise ValueError(f"Unsupported FLUX.2 variant for Qwen3 cache: {variant!r}")
 
 

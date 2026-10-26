@@ -527,81 +527,6 @@ class Wan22Trainer:
             )
         return " | ".join(parts)
 
-    def _maybe_log_omnigen2_forward_profile(self, device: torch.device):
-        model = self.accelerator.unwrap_model(self.model)
-        profile_tensor = getattr(model, "_last_omnigen2_forward_profile_tensor", None)
-        if profile_tensor is None:
-            return
-
-        profile_tensor = profile_tensor.detach().to(device=device, dtype=torch.float32)
-        gathered = self.accelerator.gather(profile_tensor)
-        num_ranks = max(int(self.accelerator.num_processes), 1)
-        if gathered.numel() % num_ranks != 0:
-            if self.accelerator.is_main_process:
-                logger.warning(
-                    "Cannot format OmniGen2 forward profile: gathered shape=%s num_ranks=%d",
-                    tuple(gathered.shape),
-                    num_ranks,
-                )
-            return
-        gathered = gathered.reshape(num_ranks, -1).detach().cpu()
-        if not self.accelerator.is_main_process:
-            return
-
-        phase_names = list(getattr(model, "_last_omnigen2_forward_profile", {}).get("phase_names", []))
-        if not phase_names:
-            phase_names = ["build_inputs", "noise_sched", "video_pre", "action_pre", "mask", "mot", "post_loss"]
-        num_phases = len(phase_names)
-        expected = 2 * num_phases + 10
-        if gathered.shape[1] < expected:
-            logger.warning("OmniGen2 forward profile is too short: shape=%s expected>=%d", tuple(gathered.shape), expected)
-            return
-
-        meta = gathered[:, 2 * num_phases :]
-        should_log = bool(torch.any(meta[:, 1] > 0.5).item())
-        if not should_log:
-            return
-
-        durations = gathered[:, :num_phases]
-        arrivals = gathered[:, num_phases : 2 * num_phases]
-        parts = []
-        for idx, name in enumerate(phase_names):
-            values = durations[:, idx]
-            arrival_values = arrivals[:, idx]
-            max_rank = int(torch.argmax(values).item())
-            arrival_skew = float((arrival_values.max() - arrival_values.min()).item())
-            parts.append(
-                f"{name}=mean:{values.mean().item():.3f}s "
-                f"min:{values.min().item():.3f}s max:r{max_rank}:{values[max_rank].item():.3f}s "
-                f"arr_skew:{arrival_skew:.3f}s"
-            )
-
-        total = durations.sum(dim=1)
-        total_max_rank = int(torch.argmax(total).item())
-        peak = meta[:, 9]
-        peak_rank = int(torch.argmax(peak).item())
-        logger.info(
-            "[omnigen2-forward-profile] step=%d total=mean:%.3fs min:%.3fs max:r%d:%.3fs "
-            "video_seq=%.0f-%.0f action_seq=%.0f-%.0f cap=%.0f-%.0f seq=%.0f-%.0f "
-            "peak=max:r%d:%.2fGiB | %s",
-            self.global_step,
-            total.mean().item(),
-            total.min().item(),
-            total_max_rank,
-            total[total_max_rank].item(),
-            meta[:, 3].min().item(),
-            meta[:, 3].max().item(),
-            meta[:, 4].min().item(),
-            meta[:, 4].max().item(),
-            meta[:, 5].min().item(),
-            meta[:, 6].max().item(),
-            meta[:, 7].min().item(),
-            meta[:, 8].max().item(),
-            peak_rank,
-            peak[peak_rank].item(),
-            " | ".join(parts),
-        )
-
     @staticmethod
     def _looks_like_weights_checkpoint(path: Path) -> bool:
         return path.suffix.lower() in {".pt", ".pth", ".bin"} or path.is_file()
@@ -1015,11 +940,9 @@ class Wan22Trainer:
         model.eval()
 
         model_stack = str(getattr(model, "stack", ""))
-        is_omnigen2_stack = model_stack == "omnigen2"
         is_ovis_u1_stack = model_stack == "ovis_u1"
         is_flux2_stack = model_stack == "flux2"
-        is_dim_stack = model_stack == "dim"
-        is_image_prediction_stack = is_omnigen2_stack or is_ovis_u1_stack or is_flux2_stack or is_dim_stack
+        is_image_prediction_stack = is_ovis_u1_stack or is_flux2_stack
         rng = torch.Generator(device="cpu").manual_seed(self.global_step + self.accelerator.process_index)
         eval_indices = torch.randint(
             0,
@@ -1063,7 +986,7 @@ class Wan22Trainer:
                     "seed": 42,
                     "tiled": False,
                 }
-                if (is_omnigen2_stack or is_flux2_stack) and sample.get("text_hidden_states") is not None:
+                if is_flux2_stack and sample.get("text_hidden_states") is not None:
                     infer_kwargs["prompt"] = None
                     infer_kwargs["context"] = sample["text_hidden_states"][0]
                     infer_kwargs["context_mask"] = sample["text_attention_mask"][0]
@@ -1170,13 +1093,7 @@ class Wan22Trainer:
                     action_l2 = action_diff.pow(2).masked_select(action_valid).sum().div(valid_count).item()
 
                 # 4. VAE reconstruction metrics against GT target.
-                if is_omnigen2_stack:
-                    gt_final = video0[:, -1].unsqueeze(0).to(device=model.device, dtype=model.torch_dtype)
-                    vae_latents = model._encode_omnigen2_image_latents(gt_final)
-                    vae_image = model._decode_omnigen2_image_latents(vae_latents)[0]
-                    vae_np = ((vae_image.detach().float().cpu().clamp(-1, 1) + 1.0) * 127.5).to(torch.uint8).permute(1, 2, 0).numpy()
-                    vae_video_tensor = pil_frames_to_video_tensor([Image.fromarray(vae_np)])
-                elif is_ovis_u1_stack:
+                if is_ovis_u1_stack:
                     gt_final = video0[:, -1].unsqueeze(0).to(device=model.device, dtype=model.torch_dtype)
                     vae_tokens, _ = model._encode_ovis_u1_image_tokens(gt_final, time_value=0.0)
                     vae_image = model._decode_ovis_u1_image_tokens(
@@ -1194,12 +1111,6 @@ class Wan22Trainer:
                         height=int(gt_final.shape[-2]),
                         width=int(gt_final.shape[-1]),
                     )[0]
-                    vae_np = ((vae_image.detach().float().cpu().clamp(-1, 1) + 1.0) * 127.5).to(torch.uint8).permute(1, 2, 0).numpy()
-                    vae_video_tensor = pil_frames_to_video_tensor([Image.fromarray(vae_np)])
-                elif is_dim_stack:
-                    gt_final = video0[:, -1].unsqueeze(0).to(device=model.device, dtype=model.torch_dtype)
-                    vae_latents = model._encode_dim_image_latents(gt_final)
-                    vae_image = model._decode_dim_image_latents(vae_latents)[0]
                     vae_np = ((vae_image.detach().float().cpu().clamp(-1, 1) + 1.0) * 127.5).to(torch.uint8).permute(1, 2, 0).numpy()
                     vae_video_tensor = pil_frames_to_video_tensor([Image.fromarray(vae_np)])
                 else:
@@ -1546,35 +1457,12 @@ class Wan22Trainer:
             raise ValueError("`max_steps` must be set before entering the while-step training loop.")
 
         logger.info("Starting training with max_steps=%d.", self.max_steps)
-        # IMAGEWAM_PROFILE_GPU_STEPS=a:b (measurement only): record CUDA activity over steps a..b
-        # and log the GPU kernel time per step, which excludes host-side gaps.
-        gpu_prof_spec = os.environ.get("JAM_PROFILE_GPU_STEPS", "")
-        gpu_prof = None
-        gpu_prof_a = gpu_prof_b = None
-        if gpu_prof_spec:
-            gpu_prof_a, gpu_prof_b = (int(v) for v in gpu_prof_spec.split(":"))
-        # IMAGEWAM_PROFILE_MARKERS=a:b (measurement only): CPU+CUDA profile over steps a..b, reporting the
-        # inclusive GPU time per step of the optimizer update marker (Optimizer.step#...), which DeepSpeed
-        # runs inside accelerator.backward, so it cannot be skipped from the trainer.
-        mk_prof_spec = os.environ.get("JAM_PROFILE_MARKERS", "")
-        mk_prof = None
-        mk_prof_a = mk_prof_b = None
-        if mk_prof_spec:
-            mk_prof_a, mk_prof_b = (int(v) for v in mk_prof_spec.split(":"))
         data_iter = iter(self.train_loader)
         self.run_start_step = self.global_step
         self.run_start_time = time.perf_counter()
         speed_reset_step = self.run_start_step + speed_warmup_steps
 
         while self.global_step < self.max_steps:
-            if gpu_prof_a is not None and gpu_prof is None and self.global_step == gpu_prof_a:
-                torch.cuda.synchronize()
-                gpu_prof = torch.profiler.profile(activities=[torch.profiler.ProfilerActivity.CUDA])
-                gpu_prof.__enter__()
-            if mk_prof_a is not None and mk_prof is None and self.global_step == mk_prof_a:
-                torch.cuda.synchronize()
-                mk_prof = torch.profiler.profile(activities=[torch.profiler.ProfilerActivity.CPU, torch.profiler.ProfilerActivity.CUDA])
-                mk_prof.__enter__()
             timer_active = (
                 self.rank_timer_every > 0
                 and (self.global_step + 1) % self.rank_timer_every == 0
@@ -1597,79 +1485,32 @@ class Wan22Trainer:
             with self.accelerator.accumulate(self.model):
                 train_model = self.model if hasattr(self.model, "training_loss") else self.accelerator.unwrap_model(self.model)
 
-                iter_training_losses = getattr(train_model, "iter_training_losses", None)
-                loss = None
-                loss_dict = {}
-                forward_elapsed = 0.0
-                backward_elapsed = 0.0
+                forward_start = time.perf_counter()
+                with self.accelerator.autocast():
+                    loss, loss_dict = train_model.training_loss(sample)
+                forward_elapsed = time.perf_counter() - forward_start
+                if fail_on_nonfinite_loss:
+                    assert_finite_loss(
+                        loss,
+                        "Non-finite training loss before backward: "
+                        f"rank={self.accelerator.process_index} "
+                        f"step={self.global_step + 1}.",
+                    )
 
-                if callable(iter_training_losses):
-                    objective_iter = iter(iter_training_losses(sample))
-                    objective_count = 0
-                    while True:
-                        objective_forward_start = time.perf_counter()
-                        try:
-                            with self.accelerator.autocast():
-                                objective_loss, objective_loss_dict = next(objective_iter)
-                        except StopIteration:
-                            break
-                        forward_elapsed += time.perf_counter() - objective_forward_start
-                        objective_count += 1
-                        if fail_on_nonfinite_loss:
-                            assert_finite_loss(
-                                objective_loss,
-                                "Non-finite training objective before backward: "
-                                f"rank={self.accelerator.process_index} "
-                                f"step={self.global_step + 1} "
-                                f"objective={objective_count}.",
-                            )
-                        loss = (
-                            objective_loss.detach().float()
-                            if loss is None
-                            else loss + objective_loss.detach().float()
-                        )
-                        for key, value in objective_loss_dict.items():
-                            loss_dict[key] = float(value)
-
-                        objective_backward_start = time.perf_counter()
-                        self.accelerator.backward(objective_loss)
-                        backward_elapsed += time.perf_counter() - objective_backward_start
-
-                    if objective_count <= 0:
-                        raise RuntimeError("`iter_training_losses` yielded no training losses.")
-                else:
-                    forward_start = time.perf_counter()
-                    with self.accelerator.autocast():
-                        loss, loss_dict = train_model.training_loss(sample)
-                    forward_elapsed = time.perf_counter() - forward_start
-                    if fail_on_nonfinite_loss:
-                        assert_finite_loss(
-                            loss,
-                            "Non-finite training loss before backward: "
-                            f"rank={self.accelerator.process_index} "
-                            f"step={self.global_step + 1}.",
-                        )
-
-                    backward_start = time.perf_counter()
-                    self.accelerator.backward(loss)
-                    backward_elapsed = time.perf_counter() - backward_start
+                backward_start = time.perf_counter()
+                self.accelerator.backward(loss)
+                backward_elapsed = time.perf_counter() - backward_start
 
                 self._rank_timer_sync(timer_active)
                 step_timings["forward"] = forward_elapsed
-                self._maybe_log_omnigen2_forward_profile(loss.device)
                 step_timings["backward"] = backward_elapsed
 
                 if self.accelerator.sync_gradients:
                     self._finish_trainable_grad_audit()
                     optimizer_start = time.perf_counter()
-                    # IMAGEWAM_SKIP_OPTIMIZER_STEP=1 (measurement only): no clipping and no update, so the
-                    # GPU time of the optimizer stage can be read as a difference to a normal run.
-                    if os.environ.get("JAM_SKIP_OPTIMIZER_STEP") == "1":
-                        grad_norm = torch.zeros((), device=self.accelerator.device)
-                    else:
-                        grad_norm = self.accelerator.clip_grad_norm_(self.model.parameters(), self.max_grad_norm)
-                        self.optimizer.step()
-                    if os.environ.get("JAM_SKIP_OPTIMIZER_STEP") != "1" and not self.accelerator.optimizer_step_was_skipped:
+                    grad_norm = self.accelerator.clip_grad_norm_(self.model.parameters(), self.max_grad_norm)
+                    self.optimizer.step()
+                    if not self.accelerator.optimizer_step_was_skipped:
                         # A full-state continuation can deliberately train past
                         # the endpoint of its original cosine schedule.  PyTorch's
                         # CosineAnnealingLR rises again when stepped beyond T_max,
@@ -1687,29 +1528,6 @@ class Wan22Trainer:
                     step_timings["optimizer"] = time.perf_counter() - optimizer_start
 
                     self.global_step += 1
-                    if gpu_prof is not None and self.global_step == gpu_prof_b:
-                        torch.cuda.synchronize()
-                        gpu_prof.__exit__(None, None, None)
-                        gpu_total_us = sum(
-                            (getattr(e, "self_device_time_total", 0) or 0) for e in gpu_prof.key_averages()
-                        )
-                        logger.info(
-                            "[gpuprof] steps %d..%d: GPU time %.1f ms per step",
-                            gpu_prof_a, gpu_prof_b, gpu_total_us / 1000.0 / max(1, gpu_prof_b - gpu_prof_a),
-                        )
-                        gpu_prof = None
-                    if mk_prof is not None and self.global_step == mk_prof_b:
-                        torch.cuda.synchronize()
-                        mk_prof.__exit__(None, None, None)
-                        nsteps = max(1, mk_prof_b - mk_prof_a)
-                        totals = {}
-                        for ev in mk_prof.events():
-                            name = getattr(ev, "name", "") or ""
-                            if name.startswith("Optimizer.step") or name.startswith("### "):
-                                totals[name] = totals.get(name, 0.0) + float(getattr(ev, "device_time_total", 0) or 0)
-                        for name, us in sorted(totals.items()):
-                            logger.info("marker %s: GPU time %.1f ms per step (steps %d..%d)", name, us / 1000.0 / nsteps, mk_prof_a, mk_prof_b)
-                        mk_prof = None
                     should_log = self.log_every > 0 and self.global_step % self.log_every == 0
                     should_log_timer = self.rank_timer_every > 0 and self.global_step % self.rank_timer_every == 0
                     should_gather_metrics = (

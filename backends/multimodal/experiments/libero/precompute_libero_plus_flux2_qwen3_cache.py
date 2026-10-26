@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """Cache FLUX.2 Qwen3-4B contexts for the fixed ImageWAM paper15 tasks.
 
-The strict DINO -> ActionDiTFlux2 policy has no online text encoder.  Its
-ordinary LIBERO run therefore contains only the 40 training prompts in the
-Qwen3 cache.  This utility deterministically selects the canonical 15%/seed42
-LIBERO-Plus manifest, resolves the 1,502 unique formatted prompts, and writes
-the exact 512-token Qwen3 payload format used during training.
+The DINOv2 policies (dino-b-jam, dino-l-jam) have no online text encoder.
+Their ordinary LIBERO run therefore contains only the 40 training prompts in
+the Qwen3 cache.  This utility deterministically selects the canonical
+15%/seed42 LIBERO-Plus manifest, resolves the 1,502 unique formatted prompts,
+and writes the exact 512-token Qwen3 payload format used during training.
 """
 
 from __future__ import annotations

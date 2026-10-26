@@ -452,19 +452,16 @@ class MoT(nn.Module):
         context_all: Dict[str, Optional[dict]],
         t_mod_all: Dict[str, torch.Tensor],
         return_video_hidden_layers: Optional[Sequence[int]] = None,
-        return_action_hidden_layers: Optional[Sequence[int]] = None,
     ):
         """Joint MoT forward.
 
         Args:
             return_video_hidden_layers: Optional depths at which to capture the video
                 expert's hidden states. Depth d means "after d blocks" (1 <= d <= num_layers).
-            return_action_hidden_layers: Optional depths at which to capture the action
-                expert's hidden states (same indexing).
 
         Returns:
-            `tokens_all`, optionally followed by `video_hidden` and/or `action_hidden`
-            dicts (depth -> [B, S, D]) in that order, only for the ones requested.
+            `tokens_all`, followed by the `video_hidden` dict (depth -> [B, S, D]) when
+            `return_video_hidden_layers` is given.
         """
         def _check(name, layers):
             if layers is None:
@@ -476,9 +473,7 @@ class MoT(nn.Module):
             return s
 
         capture_layers = _check("return_video_hidden_layers", return_video_hidden_layers)
-        capture_action_layers = _check("return_action_hidden_layers", return_action_hidden_layers)
         video_hidden: Dict[int, torch.Tensor] = {}
-        action_hidden: Dict[int, torch.Tensor] = {}
 
         missing = [k for k in self.expert_order if k not in embeds_all]
         if missing:
@@ -583,13 +578,7 @@ class MoT(nn.Module):
 
             if capture_layers is not None and (layer_idx + 1) in capture_layers:
                 video_hidden[layer_idx + 1] = tokens_all["video"]
-            if capture_action_layers is not None and (layer_idx + 1) in capture_action_layers:
-                action_hidden[layer_idx + 1] = tokens_all["action"]
 
-        if capture_layers is not None and capture_action_layers is not None:
-            return tokens_all, video_hidden, action_hidden
         if capture_layers is not None:
             return tokens_all, video_hidden
-        if capture_action_layers is not None:
-            return tokens_all, action_hidden
         return tokens_all

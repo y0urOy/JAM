@@ -30,10 +30,6 @@ class OvisU1VideoExpert(nn.Module):
         self.double_layers = len(self.double_blocks)
         self.single_layers = len(self.single_blocks)
         self.use_gradient_checkpointing = bool(getattr(transformer, "gradient_checkpointing", False))
-        # Optional, experiment-only input adapter.  The official Ovis path
-        # continues to use transformer.img_in on packed VAE latents.
-        self.external_ssl_input_dim: int | None = None
-        self.external_ssl_img_in: nn.Module | None = None
 
     @property
     def blocks(self):
@@ -46,26 +42,6 @@ class OvisU1VideoExpert(nn.Module):
         else:
             transformer = visual_generator.backbone
         return cls(transformer)
-
-    def enable_external_ssl_input(self, input_dim: int) -> None:
-        """Add a dense SSL-token input adapter without altering official Ovis."""
-
-        input_dim = int(input_dim)
-        if input_dim <= 0:
-            raise ValueError(f"`input_dim` must be positive, got {input_dim}.")
-        if self.external_ssl_img_in is not None:
-            if self.external_ssl_input_dim != input_dim:
-                raise ValueError(
-                    "External SSL input adapter already configured with "
-                    f"dim={self.external_ssl_input_dim}, requested={input_dim}."
-                )
-            return
-        ref = next(self.transformer.parameters())
-        self.external_ssl_input_dim = input_dim
-        self.external_ssl_img_in = nn.Linear(input_dim, self.hidden_dim).to(
-            device=ref.device,
-            dtype=ref.dtype,
-        )
 
     @staticmethod
     def pack_latents(latents: torch.Tensor) -> torch.Tensor:
@@ -177,15 +153,7 @@ class OvisU1VideoExpert(nn.Module):
 
         img = x if ref_image_hidden_states is None else torch.cat([x, ref_image_hidden_states], dim=1)
         img_ids = target_img_ids if ref_img_ids is None else torch.cat([target_img_ids, ref_img_ids], dim=1)
-        if self.external_ssl_img_in is None:
-            img = self.transformer.img_in(img)
-        else:
-            if int(img.shape[-1]) != int(self.external_ssl_input_dim):
-                raise ValueError(
-                    "External SSL Yak input dim mismatch: "
-                    f"expected {self.external_ssl_input_dim}, got {img.shape[-1]}."
-                )
-            img = self.external_ssl_img_in(img)
+        img = self.transformer.img_in(img)
 
         if timestep.ndim != 1:
             raise ValueError(f"`timestep` must be [B], got {tuple(timestep.shape)}")

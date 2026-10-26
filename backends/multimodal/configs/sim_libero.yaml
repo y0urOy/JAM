@@ -2,7 +2,8 @@
 
 defaults:
   - train
-  - override /task: libero_uncond_2cam224_1e-4
+  - override /task: libero_ovis_u1_jam_foresight
+  - override /hydra/job_logging: stdout
   - _self_
 
 ckpt: null

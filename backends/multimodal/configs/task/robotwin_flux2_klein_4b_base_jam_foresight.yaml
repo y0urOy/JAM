@@ -1,9 +1,9 @@
 # @package _global_
 
-# RoboTwin counterpart of the selected FLUX.2-4B LIBERO pure-foresight recipe.
+# RoboTwin counterpart of the FLUX.2-4B LIBERO foresight recipe.
 # The optimization budget follows the released ImageWAM FLUX.2 RoboTwin
 # checkpoint: 5 complete epochs at global batch 384 (69,900 optimizer steps on
-# the public RoboTwin-2.0 non-idle split), not the LIBERO 34,720-step budget.
+# the public RoboTwin-2.0 non-idle split).
 
 defaults:
   - override /data: robotwin_omnigen2
@@ -14,8 +14,7 @@ data:
   train:
     # This legacy flag controls the Wan/UMT5 cache, not FLUX.2 Qwen3.  Keep it
     # false; a non-null qwen_text_cache_dir below is what enables Qwen3 cache
-    # loading (scripts/audit_robotwin_flux2_foresight.py --check-cache verifies
-    # that all 921,032 prompt caches exist).
+    # loading (the cache must contain all 921,032 RoboTwin prompts).
     require_text_cache: false
     qwen_text_cache_dir: ./data/robotwin_flux2_qwen3_4b_len128
     qwen_context_len: 128

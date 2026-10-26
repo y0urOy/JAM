@@ -531,9 +531,15 @@ class OvisU1(OvisU1PreTrainedModel):
         attn_kwargs = dict()
         if self.config.llm_attn_implementation:
             attn_kwargs['attn_implementation'] = self.config.llm_attn_implementation
+        elif int(transformers.__version__.split('.')[0]) >= 5:
+            # transformers 4.x kept the shipped llm_config (`_attn_implementation_autoset: true`)
+            # on eager attention; 5.x would pick sdpa.  Keep the original numerics.
+            attn_kwargs['attn_implementation'] = 'eager'
         self.llm = AutoModelForCausalLM.from_config(self.config.llm_config, **attn_kwargs)
         assert self.config.hidden_size == self.llm.config.hidden_size, "hidden size mismatch"
-        self.text_tokenizer = AutoTokenizer.from_pretrained(self.config.name_or_path)
+        # transformers>=5 also reads config.json here, whose auto_map would ask whether to run the
+        # repository code; tokenizer_config.json names the tokenizer class (Qwen2Tokenizer) either way.
+        self.text_tokenizer = AutoTokenizer.from_pretrained(self.config.name_or_path, trust_remote_code=False)
         self.visual_tokenizer = AutoModel.from_config(self.config.visual_tokenizer_config,
                                                     image_processor_name_or_path=self.config.name_or_path)
         self.visual_generator = AutoModel.from_config(self.config.visual_generator_config)
@@ -551,10 +557,13 @@ class OvisU1(OvisU1PreTrainedModel):
         self._keep_in_fp32_modules = _merge_modules(
             (self.llm._keep_in_fp32_modules, self.visual_tokenizer._keep_in_fp32_modules))
         self._supports_flash_attn_2 = True
-        self.is_parallelizable = all((self.llm.is_parallelizable, self.visual_tokenizer.is_parallelizable, self.visual_generator.is_parallelizable))
+        self.is_parallelizable = all(getattr(m, 'is_parallelizable', False) for m in (self.llm, self.visual_tokenizer, self.visual_generator))
         self.supports_gradient_checkpointing = all(
             (self.llm.supports_gradient_checkpointing, self.visual_tokenizer.supports_gradient_checkpointing, self.visual_generator.supports_gradient_checkpointing))
         self._supports_sdpa = all((self.llm._supports_sdpa, self.visual_tokenizer._supports_sdpa, self.visual_generator._supports_sdpa))
+        if int(transformers.__version__.split('.')[0]) >= 5:
+            # transformers>=5 loading needs post_init() (all_tied_weights_keys etc.).
+            self.post_init()
 
     def get_text_tokenizer(self):
         return self.text_tokenizer
@@ -565,9 +574,12 @@ class OvisU1(OvisU1PreTrainedModel):
     def get_visual_generator(self):
         return self.visual_generator
 
-    def tie_weights(self):
-        if not self.config.disable_tie_weight:
-            self.get_llm().tie_weights()
+    def tie_weights(self, missing_keys=None, recompute_mapping=True):
+        if self.config.disable_tie_weight:
+            return
+        if hasattr(self, 'all_tied_weights_keys'):  # transformers>=5 tying API
+            return super().tie_weights(missing_keys=missing_keys, recompute_mapping=recompute_mapping)
+        self.get_llm().tie_weights()
 
     def get_lm_head(self):
         return self.get_llm().get_output_embeddings()

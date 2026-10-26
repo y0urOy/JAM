@@ -25,11 +25,13 @@ def trials_per_task(benchmark):
     return 1 if benchmark == 'plus' else 50
 
 
-def summarize(output, benchmark):
+def read_results(output, benchmark):
+    """Validated per-task results, the result files that fail validation, and every valid episode."""
     output = Path(output)
     expected = set(task_list(benchmark))
     trials = trials_per_task(benchmark)
-    found, errors, episodes = {}, [], []
+    found, invalid, episodes = {}, [], []
+    duplicate_tasks = set()
     for path in sorted(output.rglob('*_results.json')):
         try:
             result = json.loads(path.read_text())
@@ -39,7 +41,14 @@ def summarize(output, benchmark):
             key = f'{suite},{tid}'
             if key not in expected:
                 raise ValueError(f'unexpected task {key}')
-            if key in found:
+            if key in found or key in duplicate_tasks:
+                # Neither copy is authoritative. Quarantine every conflicting result and
+                # rerun the task rather than selecting a score by file-name order.
+                if key in found:
+                    previous = found.pop(key)
+                    invalid.append((output / previous['result_file'], ValueError(f'duplicate task {key}')))
+                    episodes = [row for row in episodes if row[0] != previous['task_id']]
+                duplicate_tasks.add(key)
                 raise ValueError(f'duplicate task {key}')
             n, successes = result['total_episodes'], result['successes']
             if type(n) is not int or n != trials:
@@ -59,7 +68,16 @@ def summarize(output, benchmark):
                           'result_file': str(path.relative_to(output))}
             episodes.extend((f'{suite}:{tid}', episode, int(episode in good)) for episode in range(n))
         except (ValueError, TypeError, KeyError, OSError) as error:
-            errors.append(f'{path.relative_to(output)}: {error}')
+            invalid.append((path, error))
+    return found, invalid, episodes
+
+
+def summarize(output, benchmark):
+    output = Path(output)
+    expected = set(task_list(benchmark))
+    trials = trials_per_task(benchmark)
+    found, invalid, episodes = read_results(output, benchmark)
+    errors = [f'{path.relative_to(output)}: {error}' for path, error in invalid]
     missing = sorted(expected - found.keys())
     execution_report = output / 'execution_report.json'
     if execution_report.is_file():
@@ -101,6 +119,6 @@ def save_summary(output, report, episodes):
     with (output / 'episodes.csv').open('w', newline='') as handle:
         writer = csv.writer(handle)
         writer.writerow(['task_id', 'episode', 'success'])
-        # Do not export a misleading partial sample for paired comparisons.
+        # Do not export a misleading partial sample.
         if report['complete']:
             writer.writerows(episodes)

@@ -1,17 +1,15 @@
+# DeepSpeed settings are in ds_zero1.json, which sets no gradient clipping; BF16 comes from the
+# training config. The path is relative to backends/<backend>, where tools/jam.py starts training.
 compute_environment: LOCAL_MACHINE
 debug: false
 distributed_type: DEEPSPEED
 deepspeed_config:
-  gradient_accumulation_steps: auto
-  gradient_clipping: 1.0
-  offload_optimizer_device: none
-  offload_param_device: none
+  deepspeed_config_file: ../../environments/ds_zero1.json
+  deepspeed_multinode_launcher: standard
   zero3_init_flag: false
-  zero_stage: 1
-downcast_bf16: 'no'
+mixed_precision: null
 machine_rank: 0
 main_training_function: main
-mixed_precision: bf16
 num_machines: 1
 num_processes: 1
 rdzv_backend: static

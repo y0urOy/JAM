@@ -58,19 +58,13 @@
       "repo_id": "AIDC-AI/Ovis-U1-3B",
       "revision": "cbc005ddff7376a20bc98a89136d088e0f7e1623",
       "directory": "Ovis-U1-3B",
-      "pin_evidence": "Upstream revision inspected at release preparation; original training revision not established from local metadata"
-    },
-    "qwen-4b": {
-      "repo_id": "Qwen/Qwen3.5-4B-Base",
-      "revision": "1001bb4d826a52d1f399e183466143f4da7b741b",
-      "directory": "Qwen3.5-4B-Base",
-      "pin_evidence": "Upstream revision inspected at release preparation; original training revision not established from local metadata"
+      "pin_evidence": "Local Hugging Face download metadata"
     },
     "qwen3": {
       "repo_id": "Qwen/Qwen3-4B",
       "revision": "1cfa9a7208912126459214e8b04321603b3df60c",
       "directory": "Qwen3-4B",
-      "pin_evidence": "Upstream revision inspected at release preparation; original training revision not established from local metadata"
+      "pin_evidence": "Local Hugging Face download metadata"
     },
     "libero-data": {
       "repo_id": "yuanty/LIBERO-fastwam",
@@ -85,6 +79,60 @@
       "repo_type": "dataset",
       "directory": "robotwin2.0",
       "pin_evidence": "Local Hugging Face download metadata"
+    },
+    "libero-plus-assets": {
+      "repo_id": "Sylvest/LIBERO-plus",
+      "revision": "dd2bd61b7d9a6fef1abc52d606e983b41886a149",
+      "repo_type": "dataset",
+      "directory": "libero-plus-assets",
+      "allow_patterns": [
+        "assets.zip"
+      ],
+      "pin_evidence": "assets.zip SHA256 96764a4bfbdaea98d4411598caeab235458318fe0f549611b93d1a323027b3cf equals the archive used for the paper evaluations",
+      "files": {
+        "assets.zip": {
+          "bytes": 6395849578,
+          "sha256": "96764a4bfbdaea98d4411598caeab235458318fe0f549611b93d1a323027b3cf"
+        }
+      },
+      "extracted_sha256": {
+        "scenes/libero_tabletop_base_style.xml": "5e69f8568bedf4a71641fcb62285182d0f6dbe498ea18adad86a13706558033f",
+        "scenes/kitchen_table_WoodFine001_REFL_6K.xml": "c1a639b5426f3083a2617f79263de81b5ff64d225f9b2046ca536a047d204a19"
+      }
+    },
+    "robotwin-assets": {
+      "repo_id": "TianxingChen/RoboTwin2.0",
+      "revision": "9dc9299c163db059931898a9f0852098a61155a1",
+      "repo_type": "dataset",
+      "directory": "robotwin-assets",
+      "allow_patterns": [
+        "background_texture.zip",
+        "embodiments.zip",
+        "objects.zip"
+      ],
+      "pin_evidence": "Repository head when the paper evaluation assets were downloaded; the three archives are unchanged until 2026-09-22",
+      "files": {
+        "background_texture.zip": {
+          "bytes": 10970687027,
+          "sha256": "54ede0fb5b783e0faa2bc98720d3affd6ca3bb9280b225b48c1aafaf31473070"
+        },
+        "embodiments.zip": {
+          "bytes": 219859313,
+          "sha256": "6b87d7d55e106d8ff25917e0538eb1e177fc549280e8a742a8cec3cb9f953fc6"
+        },
+        "objects.zip": {
+          "bytes": 3737778549,
+          "sha256": "6aa56b3cf1e1064f7c809308144da36b00815f8b137fef2d7e4de856f8becf27"
+        }
+      },
+      "extracted_sha256": {
+        "objects/objaverse/list.json": "9c33b70f6e91788033d6cc3e1d58fe0ad09ced472679440083b31513f9c4bc6f",
+        "embodiments/aloha-agilex/config.yml": "a4f043d2d4b44cca5ec47fb498a3194da3f87ff9530dcbfdcee1539a44423d57",
+        "embodiments/aloha-agilex/curobo_left_tmp.yml": "5860346baf83c74da3dfacbc548f3165fe6caba5797fd28da158a618576556c8",
+        "embodiments/aloha-agilex/curobo_right_tmp.yml": "bebc418e0bb02cc70a4cb124b9cda6c4c12ce27c5bdbf1b4153654d781fb62f8",
+        "embodiments/aloha-agilex/urdf/arx5_description_isaac.urdf": "097c59fb19a7b482249c6097df8319586ea7cfd268c015516f103b289a7e761a",
+        "background_texture/seen/0.png": "e1ca2ad05936b39f81b80cfa76f5a5f75003abee3c139ee436cbd52eeb289808"
+      }
     }
   }
 }

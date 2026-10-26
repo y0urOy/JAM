@@ -10,6 +10,7 @@ import torch.nn.functional as F
 from omegaconf import OmegaConf
 
 from jam_multimodal.models.backbones.action_dit_yak import ActionDiTYak
+from jam_multimodal.models.backbones.ovis_u1_imports import ensure_ovis_u1_remote_code_importable
 
 
 def _interpolate_last_dim(tensor: torch.Tensor, new_size: int) -> torch.Tensor:
@@ -71,9 +72,12 @@ def main() -> None:
     parser.add_argument("--use-gradient-checkpointing", action="store_true")
     args = parser.parse_args()
 
-    from transformers import AutoModelForCausalLM
+    # The loader of JAMPolicy.from_ovis_u1_pretrained: the vendored Ovis-U1 code as one regular
+    # package. Every module in float32, as Transformers 4 loaded this call by default.
+    ensure_ovis_u1_remote_code_importable()
+    from ovis_u1_hf.modeling_ovis_u1 import OvisU1
 
-    ovis_model = AutoModelForCausalLM.from_pretrained(args.ovis_u1_model_path, trust_remote_code=True).to(args.device)
+    ovis_model = OvisU1.from_pretrained(args.ovis_u1_model_path, torch_dtype=torch.float32).to(args.device)
     yak = ovis_model.get_visual_generator().get_backbone()
     action_cfg = _load_action_cfg(
         args.model_config,

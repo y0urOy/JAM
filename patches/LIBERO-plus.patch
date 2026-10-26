@@ -1,0 +1,34 @@
+diff --git a/libero/libero/benchmark/__init__.py b/libero/libero/benchmark/__init__.py
+index 8156148..c4660b9 100644
+--- a/libero/libero/benchmark/__init__.py
++++ b/libero/libero/benchmark/__init__.py
+@@ -183,7 +183,7 @@ class Benchmark(abc.ABC):
+                 self.tasks[i].init_states_file,
+             )
+ 
+-        init_states = torch.load(init_states_path)
++        init_states = torch.load(init_states_path, weights_only=False)
+         return init_states
+     
+     def get_task_init_states(self, i):
+@@ -239,7 +239,7 @@ class Benchmark(abc.ABC):
+         
+         # print("====init_states_path=====", init_states_path)
+ 
+-        init_states = torch.load(init_states_path)
++        init_states = torch.load(init_states_path, weights_only=False)
+         if "_add_" in self.tasks[i].init_states_file or "_level" in self.tasks[i].init_states_file:
+             init_states = init_states.reshape(1, -1)
+         return init_states
+diff --git a/libero/libero/envs/env_wrapper.py b/libero/libero/envs/env_wrapper.py
+index be94797..4739bbf 100644
+--- a/libero/libero/envs/env_wrapper.py
++++ b/libero/libero/envs/env_wrapper.py
+@@ -204,6 +204,7 @@ class ControlEnv:
+         renderer_config=None,
+         **kwargs,
+     ):
++        bddl_file_name = str(bddl_file_name)  # pathlib compatibility
+         if "_view_" in bddl_file_name and "_initstate_" in bddl_file_name:
+             bddl_file_name, angle_view_initstate = bddl_file_name.split("_view_")
+             bddl_file_name = bddl_file_name + ".bddl"

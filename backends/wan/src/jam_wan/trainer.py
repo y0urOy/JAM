@@ -155,9 +155,6 @@ class Wan22Trainer:
         foresight_projectors = getattr(self.model, "foresight_projectors", None)
         if foresight_projectors is not None:
             trainable_params.extend(list(foresight_projectors.parameters()))
-        foresight_action_heads = getattr(self.model, "foresight_action_heads", None)
-        if foresight_action_heads is not None:
-            trainable_params.extend(list(foresight_action_heads.parameters()))
         optimizer_parameters = trainable_params
         optimizer_group_numels = [sum(parameter.numel() for parameter in trainable_params)]
         if self.optimizer_max_group_numel is not None:
@@ -460,16 +457,12 @@ class Wan22Trainer:
         if proprio_encoder is not None:
             proprio_encoder.train()
             proprio_encoder.requires_grad_(True)
-        # Foresight projector is trainable; the frozen foresight encoder is not a
-        # registered submodule, so the blanket freeze above never touches it.
+        # The foresight projector is trained; foresight targets come from the
+        # frozen VAE and have no parameters.
         foresight_projectors = getattr(model, "foresight_projectors", None)
         if foresight_projectors is not None:
             foresight_projectors.train()
             foresight_projectors.requires_grad_(True)
-        foresight_action_heads = getattr(model, "foresight_action_heads", None)
-        if foresight_action_heads is not None:
-            foresight_action_heads.train()
-            foresight_action_heads.requires_grad_(True)
 
     @staticmethod
     def _to_batched_eval_sample(sample):
@@ -808,13 +801,6 @@ class Wan22Trainer:
 
     def load_training_state(self, state_dir: str):
         self.accelerator.load_state(input_dir=state_dir)
-        model = self.accelerator.unwrap_model(self.model)
-        reset_teacher = getattr(model, "reset_foresight_teacher_from_student", None)
-        if reset_teacher is not None and reset_teacher():
-            logger.warning(
-                "Full-state EMA resume restarted the unregistered foresight teacher from "
-                "the restored student; pre-checkpoint EMA history is not reconstructible."
-            )
         state_file = Path(state_dir) / "trainer_state.json"
         if state_file.exists():
             with open(state_file, "r", encoding="utf-8") as f:
@@ -861,8 +847,6 @@ class Wan22Trainer:
     def train(self):
         self._set_dit_only_train_mode()
 
-        unwrapped_model = self.accelerator.unwrap_model(self.model)
-
         if self.max_steps is None:
             raise ValueError("`max_steps` must be set before entering the while-step training loop.")
 
@@ -907,11 +891,6 @@ class Wan22Trainer:
                                 param_group["lr"] = self.lr_schedule_terminal_lr
                         else:
                             self.scheduler.step()
-                        update_teacher = getattr(
-                            unwrapped_model, "update_foresight_teacher", None
-                        )
-                        if update_teacher is not None:
-                            update_teacher()
                     self.optimizer.zero_grad(set_to_none=True)
                     self.global_step += 1
                     global_loss = float(

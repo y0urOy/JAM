@@ -9,30 +9,14 @@ from jam_wan.utils.logging_config import get_logger
 
 from .action_dit import ActionDiT
 from .foresight import (
-    ActionForesightHead,
-    SpatialActionForesightHead,
-    ForesightProjector,
     SharedForesightProjector,
-    MLPForesightProjector,
-    build_foresight_encoder,
-    build_foresight_ema_shadow,
-    build_random_foresight_encoder,
-    build_random_foresight_vae,
-    encode_foresight_patch_embedding,
-    encode_foresight_hidden,
-    encode_foresight_hidden_multi,
     encode_foresight_vae_direct,
-    fuse_future_targets,
     lift_foresight_vae_patches,
     normalize_foresight_target_type,
     normalize_foresight_teacher_mode,
     per_frame_targets,
-    update_foresight_ema_teacher_,
 )
-from .helpers.loader import (
-    load_wan22_pretrained_video_dit_prefix,
-    load_wan22_ti2v_5b_components,
-)
+from .helpers.loader import load_wan22_ti2v_5b_components
 from .mot import MoT
 from .schedulers.scheduler_continuous import WanContinuousFlowMatchScheduler
 
@@ -62,8 +46,6 @@ class JAMWan(torch.nn.Module):
         action_num_train_timesteps: int = 1000,
         loss_lambda_video: float = 1.0,
         loss_lambda_action: float = 1.0,
-        foresight_encoder=None,
-        foresight_vae=None,
         foresight_cfg: Optional[dict] = None,
     ):
         super().__init__()
@@ -76,27 +58,21 @@ class JAMWan(torch.nn.Module):
         foresight_cfg = dict(foresight_cfg or {})
         self.foresight_enabled = bool(foresight_cfg.get("enabled", False))
         self.foresight_video_cotrain = bool(foresight_cfg.get("video_cotrain", True))
-        self.foresight_target_type = normalize_foresight_target_type(
-            foresight_cfg.get("target_type", None)
+        # The only foresight target this release implements is the frozen
+        # pretrained VAE latent of the recorded future ("VAE-direct").
+        self.foresight_target_type = (
+            normalize_foresight_target_type(foresight_cfg.get("target_type", None))
+            if self.foresight_enabled
+            else None
         )
-        self.foresight_teacher_mode = normalize_foresight_teacher_mode(
-            foresight_cfg.get("teacher_mode", None)
+        self.foresight_teacher_mode = (
+            normalize_foresight_teacher_mode(foresight_cfg.get("teacher_mode", None))
+            if self.foresight_enabled
+            else None
         )
-        self.foresight_teacher_random_seed = int(
-            foresight_cfg.get("teacher_random_seed", 0)
-        )
-        self.foresight_teacher_ema_decay = float(
-            foresight_cfg.get("teacher_ema_decay", 0.995)
-        )
-        if not 0.0 <= self.foresight_teacher_ema_decay < 1.0:
-            raise ValueError(
-                "`foresight.teacher_ema_decay` must be in [0, 1), got "
-                f"{self.foresight_teacher_ema_decay}."
-            )
-        self._foresight_ema_shadow = None
-        self._foresight_ema_updates = 0
-        # `layers` (list) supersedes `layer` (single int); each student layer L_i is paired
-        # with encoder layer encoder_layers[i] at the same relative depth by default.
+        # `layers` (list) supersedes `layer` (single int): the student video-expert depths
+        # whose observation tokens predict the future. `encoder_layers` pairs each with a
+        # target row of the cache layout; VAE-direct targets use row 0.
         if "layers" in foresight_cfg and foresight_cfg["layers"] is not None:
             self.foresight_layers = [int(x) for x in foresight_cfg["layers"]]
         else:
@@ -135,217 +111,60 @@ class JAMWan(torch.nn.Module):
             if mean_w <= 0:
                 raise ValueError(f"`foresight.offset_weights` must have positive mean, got {ow}.")
             self.foresight_offset_weights = [w / mean_w for w in ow]
-        # Shared projector backbone + lightweight per-target heads (avoids the
-        # num_layers x num_offsets full-projector explosion under per_frame).
-        self.foresight_shared_projector = bool(foresight_cfg.get("shared_projector", False))
-        # Per-frame multi-target foresight: predict each future latent frame separately
-        # instead of fusing into one averaged target (preserves temporal structure).
-        self.foresight_per_frame = bool(foresight_cfg.get("per_frame", False))
-        # Action-stream foresight: align action-expert hidden states to future visual
-        # features (action group i -> latent frame i+1, spatially pooled).
-        action_layers = foresight_cfg.get("action_layers", None)
-        self.foresight_action_layers = None if action_layers is None else [int(x) for x in action_layers]
-        self.loss_lambda_action_foresight = float(
-            foresight_cfg.get("lambda_action_foresight", self.loss_lambda_foresight)
-        )
-        # action_per_token: align the action group to the future frame's FULL spatial token map
-        # (per-token, like the video stream) instead of a single spatially-pooled vector. Restores
-        # the spatial richness that made video-stream foresight work. Default False = pooled (legacy).
-        self.foresight_action_per_token = bool(foresight_cfg.get("action_per_token", False))
-        # action_per_step: do NOT mean-pool the ~H/num_groups action steps of a transition into one
-        # vector; instead each action step's hidden separately predicts that transition's future
-        # frame target. Restores the temporal richness lost by the group averaging (the action-input
-        # analog of per-token). Uses the pooled frame target; mutually exclusive with action_per_token.
-        self.foresight_action_per_step = bool(foresight_cfg.get("action_per_step", False))
-        if self.foresight_action_per_step and self.foresight_action_per_token:
-            raise ValueError(
-                "`foresight.action_per_step` and `foresight.action_per_token` are mutually exclusive "
-                "(per-step un-pools the action input; per-token un-pools the frame target). Pick one."
-            )
-        # The frozen encoder is intentionally kept out of the module registry so it is
-        # never trained, checkpointed, or sharded; it is reloaded from pretrained weights
-        # at construction time instead.
-        self._foresight_encoder_ref = None
-        self._foresight_vae_ref = None
         self.foresight_projectors = None
-        # When targets come from the precomputed bf16+zstd cache, the frozen encoder
-        # is not instantiated at all; batches must then carry `foresight_enc_cache`.
+        # With precomputed targets (bf16+zstd cache) batches carry
+        # `foresight_enc_cache` instead of computing targets from future frames.
         self.foresight_use_target_cache = bool(foresight_cfg.get("target_cache_roots"))
-        cache_roots = foresight_cfg.get("target_cache_roots")
-        evaluation_teacher_disabled = (
-            isinstance(cache_roots, (list, tuple))
-            and list(cache_roots) == ["__evaluation_only_no_teacher__"]
-        )
-        cacheable_target_types = {"encoder_hidden", "vae_direct"}
-        if (
-            self.foresight_enabled
-            and self.foresight_use_target_cache
-            and not evaluation_teacher_disabled
-            and (
-                self.foresight_teacher_mode != "frozen_pretrained"
-                or self.foresight_target_type not in cacheable_target_types
-            )
-        ):
-            raise ValueError(
-                "Cached foresight targets support only frozen-pretrained hidden states or "
-                "frozen-pretrained VAE-direct patches; "
-                f"they cannot be used with teacher_mode={self.foresight_teacher_mode!r}, "
-                f"target_type={self.foresight_target_type!r}."
-            )
         if self.foresight_enabled:
-            target_needs_encoder = self.foresight_target_type in {
-                "encoder_hidden", "patch_embedding"
-            }
-            if (
-                target_needs_encoder
-                and foresight_encoder is None
-                and not self.foresight_use_target_cache
-            ):
+            # The JAM objective: VAE-direct targets (metadata layer 0), one target
+            # per future offset, and one shared transformer trunk with a linear
+            # head per (student layer, offset) target.
+            if any(layer != 0 for layer in self.foresight_encoder_layers):
                 raise ValueError(
-                    f"`foresight_encoder` is required for target_type={self.foresight_target_type!r}."
+                    "`target_type=vae_direct` requires `encoder_layers=[0]`."
                 )
-            if self.foresight_target_type == "patch_embedding":
-                if self.foresight_teacher_mode != "frozen_random":
-                    raise ValueError(
-                        "Random Layer0 (`target_type=patch_embedding`) requires "
-                        "`teacher_mode=frozen_random`."
-                    )
-                if any(layer != 0 for layer in self.foresight_encoder_layers):
-                    raise ValueError(
-                        "`target_type=patch_embedding` requires `encoder_layers=[0]`."
-                    )
-            elif self.foresight_target_type == "vae_direct":
-                if any(layer != 0 for layer in self.foresight_encoder_layers):
-                    raise ValueError(
-                        "`target_type=vae_direct` requires `encoder_layers=[0]`."
-                    )
-                if foresight_encoder is not None:
-                    raise ValueError("VAE-direct targets must not instantiate a foresight encoder.")
-                if self.foresight_teacher_mode == "online_ema":
-                    raise ValueError(
-                        "VAE-direct targets do not support teacher_mode=online_ema; "
-                        "use frozen_pretrained or frozen_random."
-                    )
-                if (
-                    self.foresight_teacher_mode == "frozen_random"
-                    and foresight_vae is None
-                    and not evaluation_teacher_disabled
-                ):
-                    raise ValueError(
-                        "Random VAE-direct targets require a frozen random teacher VAE."
-                    )
+            if not bool(foresight_cfg.get("per_frame", True)):
+                raise ValueError("Only per-frame foresight targets (`foresight.per_frame=true`) are supported.")
+            if not bool(foresight_cfg.get("shared_projector", True)):
+                raise ValueError(
+                    "Only the shared foresight projector (`foresight.shared_projector=true`) is supported."
+                )
+            projector_type = str(foresight_cfg.get("projector_type", "transformer")).lower()
+            if projector_type != "transformer":
+                raise ValueError(f"`foresight.projector_type` must be 'transformer', got {projector_type!r}")
+            if foresight_cfg.get("action_layers", None) is not None:
+                raise ValueError("Action-stream foresight is not supported; set `foresight.action_layers=null`.")
             num_blocks = len(video_expert.blocks)
             for L in self.foresight_layers:
                 if not (1 <= L <= num_blocks):
                     raise ValueError(f"`foresight.layers` entry must be in [1, {num_blocks}], got {L}")
-            if self.foresight_target_type == "encoder_hidden":
-                enc_num_blocks = len(foresight_encoder.blocks) if foresight_encoder is not None else num_blocks
-                for L in self.foresight_encoder_layers:
-                    if not (1 <= L <= enc_num_blocks):
-                        raise ValueError(
-                            f"`foresight.encoder_layers` entry must be in [1, {enc_num_blocks}], got {L}"
-                        )
-            self._foresight_encoder_ref = [foresight_encoder] if foresight_encoder is not None else None
-            self._foresight_vae_ref = [foresight_vae] if foresight_vae is not None else None
-            # Encoder is a frozen copy of the video expert, so its hidden dim equals the
-            # expert's; resolve explicitly so cache mode (encoder=None) can build projectors.
-            enc_out_dim = int(foresight_encoder.hidden_dim) if foresight_encoder is not None else int(video_expert.hidden_dim)
-            if self.foresight_per_frame and self.foresight_offsets is None:
+            if self.foresight_offsets is None:
                 raise ValueError("`foresight.per_frame=true` requires explicit `foresight.offsets` (e.g. [0,1,2]).")
-            # Projector keys: per-frame mode uses "{layer}_{offset}" so each (depth, future
-            # frame) gets its own head; fused mode uses "{layer}".
-            if self.foresight_per_frame:
-                proj_keys = [f"{L}_{o}" for L in self.foresight_layers for o in self.foresight_offsets]
-            else:
-                proj_keys = [str(L) for L in self.foresight_layers]
-            if self.foresight_shared_projector:
-                # One shared backbone + a cheap per-key head. projector_type selects the backbone:
-                #   "transformer" (default) = SharedForesightProjector (token-mixing DiT trunk);
-                #   "mlp" = MLPForesightProjector (REPA / Efficient-WAM style: pointwise low-dim
-                #           projection, no attention, ~10-40M instead of ~0.45B).
-                projector_type = str(foresight_cfg.get("projector_type", "transformer")).lower()
-                if projector_type == "mlp":
-                    shared_projector = MLPForesightProjector(
-                        in_dim=int(video_expert.hidden_dim),
-                        out_dim=enc_out_dim,
-                        keys=proj_keys,
-                        hidden=int(foresight_cfg.get("projector_mlp_hidden", 2048)),
-                    ).to(torch_dtype)
-                elif projector_type == "transformer":
-                    shared_projector = SharedForesightProjector(
-                        in_dim=int(video_expert.hidden_dim),
-                        out_dim=enc_out_dim,
-                        keys=proj_keys,
-                        hidden_dim=foresight_cfg.get("projector_hidden_dim", None),
-                        num_layers=int(foresight_cfg.get("projector_num_layers", 3)),
-                        num_heads=int(foresight_cfg.get("projector_num_heads", video_expert.num_heads)),
-                        ffn_dim=foresight_cfg.get("projector_ffn_dim", None),
-                    ).to(torch_dtype)
-                else:
-                    raise ValueError(
-                        f"`foresight.projector_type` must be 'transformer' or 'mlp', got {projector_type!r}"
-                    )
-                self.foresight_projectors = nn.ModuleDict({"shared": shared_projector})
-            else:
-                self.foresight_projectors = nn.ModuleDict(
-                    {
-                        k: ForesightProjector(
-                            in_dim=int(video_expert.hidden_dim),
-                            out_dim=enc_out_dim,
-                            hidden_dim=foresight_cfg.get("projector_hidden_dim", None),
-                            num_layers=int(foresight_cfg.get("projector_num_layers", 3)),
-                            num_heads=int(foresight_cfg.get("projector_num_heads", video_expert.num_heads)),
-                            ffn_dim=foresight_cfg.get("projector_ffn_dim", None),
-                        ).to(torch_dtype)
-                        for k in proj_keys
-                    }
-                )
-            # Action-stream foresight heads: one per supervised action layer.
-            self.foresight_action_heads = None
-            if self.foresight_action_layers is not None:
-                for L in self.foresight_action_layers:
-                    if not (1 <= L <= len(action_expert.blocks)):
-                        raise ValueError(
-                            f"`foresight.action_layers` entry must be in [1, {len(action_expert.blocks)}], got {L}"
-                        )
-                _ActionHead = (
-                    SpatialActionForesightHead if self.foresight_action_per_token else ActionForesightHead
-                )
-                self.foresight_action_heads = nn.ModuleDict(
-                    {
-                        str(L): _ActionHead(
-                            in_dim=int(action_expert.hidden_dim),
-                            out_dim=enc_out_dim,
-                        ).to(torch_dtype)
-                        for L in self.foresight_action_layers
-                    }
-                )
+            # Each (depth, future frame) gets its own head, keyed "{layer}_{offset}".
+            proj_keys = [f"{L}_{o}" for L in self.foresight_layers for o in self.foresight_offsets]
+            # Targets are lifted to the video expert's hidden width.
+            shared_projector = SharedForesightProjector(
+                in_dim=int(video_expert.hidden_dim),
+                out_dim=int(video_expert.hidden_dim),
+                keys=proj_keys,
+                hidden_dim=foresight_cfg.get("projector_hidden_dim", None),
+                num_layers=int(foresight_cfg.get("projector_num_layers", 3)),
+                num_heads=int(foresight_cfg.get("projector_num_heads", video_expert.num_heads)),
+                ffn_dim=foresight_cfg.get("projector_ffn_dim", None),
+            ).to(torch_dtype)
+            self.foresight_projectors = nn.ModuleDict({"shared": shared_projector})
             logger.info(
-                "Foresight: layers=%s enc=%s target=%s offsets=%s offset_weights=%s per_frame=%s action_layers=%s action_per_token=%s action_per_step=%s lambda=%.3f/%.3f cotrain=%s teacher=%s",
+                "Foresight: layers=%s enc=%s target=%s offsets=%s offset_weights=%s lambda=%.3f cotrain=%s teacher=%s",
                 self.foresight_layers,
                 self.foresight_encoder_layers,
                 self.foresight_target_type,
-                "all" if self.foresight_offsets is None else self.foresight_offsets,
+                self.foresight_offsets,
                 "equal" if self.foresight_offset_weights is None
                 else [round(w, 3) for w in self.foresight_offset_weights],
-                self.foresight_per_frame,
-                self.foresight_action_layers,
-                self.foresight_action_per_token,
-                self.foresight_action_per_step,
                 self.loss_lambda_foresight,
-                self.loss_lambda_action_foresight,
                 self.foresight_video_cotrain,
                 self.foresight_teacher_mode,
             )
-            if (
-                self.foresight_teacher_mode == "online_ema"
-                and not self.foresight_video_cotrain
-            ):
-                logger.info(
-                    "Online EMA teacher tracks the policy video expert under the "
-                    "foresight-only objective (video_cotrain=false); no generative "
-                    "video loss has been added."
-                )
 
         self.vae = vae
         self.text_encoder = text_encoder
@@ -387,8 +206,6 @@ class JAMWan(torch.nn.Module):
         self.loss_lambda_action = float(loss_lambda_action)
 
         self.to(self.device)
-        if self.foresight_teacher_mode == "online_ema" and self.foresight_encoder is not None:
-            self._initialize_foresight_ema_shadow()
 
     @classmethod
     def from_wan22_pretrained(
@@ -405,8 +222,6 @@ class JAMWan(torch.nn.Module):
         action_dit_config: dict[str, Any] | None = None,
         action_dit_pretrained_path: str | None = None,
         skip_dit_load_from_pretrain: bool = False,
-        skip_video_dit_load_from_pretrain: Optional[bool] = None,
-        video_dit_random_seed: Optional[int] = None,
         mot_checkpoint_mixed_attn: bool = True,
         video_train_shift: float = 5.0,
         video_infer_shift: float = 5.0,
@@ -423,15 +238,9 @@ class JAMWan(torch.nn.Module):
         if "text_dim" not in video_dit_config:
             raise ValueError("`video_dit_config['text_dim']` is required for JAMWan.")
 
-        # The legacy flag continues to skip both experts, which evaluation uses
-        # before loading a complete policy checkpoint. The video-only override
-        # enables a clean random-student ablation while retaining the pretrained
-        # ActionDiT backbone.
-        skip_video_pretrain = (
-            bool(skip_dit_load_from_pretrain)
-            if skip_video_dit_load_from_pretrain is None
-            else bool(skip_video_dit_load_from_pretrain)
-        )
+        # Evaluation skips the pretrained loads of both experts before loading a
+        # complete policy checkpoint.
+        skip_video_pretrain = bool(skip_dit_load_from_pretrain)
         skip_action_pretrain = bool(skip_dit_load_from_pretrain)
 
         components = load_wan22_ti2v_5b_components(
@@ -443,7 +252,6 @@ class JAMWan(torch.nn.Module):
             redirect_common_files=redirect_common_files,
             dit_config=video_dit_config,
             skip_dit_load_from_pretrain=skip_video_pretrain,
-            dit_random_seed=video_dit_random_seed,
             load_text_encoder=load_text_encoder,
         )
 
@@ -457,11 +265,7 @@ class JAMWan(torch.nn.Module):
         )
         logger.info(
             "JAMWan expert initialization: video=%s action=%s.",
-            (
-                f"random(seed={int(video_dit_random_seed)})"
-                if skip_video_pretrain and video_dit_random_seed is not None
-                else ("random(run_rng)" if skip_video_pretrain else "pretrained")
-            ),
+            "random(run_rng)" if skip_video_pretrain else "pretrained",
             "random(run_rng)" if skip_action_pretrain else "pretrained",
         )
         if int(action_expert.num_heads) != int(video_expert.num_heads):
@@ -477,107 +281,21 @@ class JAMWan(torch.nn.Module):
         )
 
         foresight_cfg = dict(foresight_cfg or {})
-        foresight_encoder = None
-        foresight_vae = None
-        foresight_teacher_path = None
         if foresight_cfg.get("enabled", False):
             if foresight_cfg.get("target_cache_roots"):
-                # Targets come from the precomputed bf16+zstd cache: skip the 5B
-                # frozen-encoder copy entirely (saves ~10GB/GPU and load time).
+                # Targets come from the precomputed bf16+zstd cache.
                 logger.info(
-                    "Foresight target cache enabled (%s): frozen encoder NOT instantiated.",
+                    "Foresight target cache enabled (%s): targets are read from disk.",
                     foresight_cfg["target_cache_roots"],
                 )
             else:
-                target_type = normalize_foresight_target_type(
-                    foresight_cfg.get("target_type", None)
+                # Validate before construction; VAE-direct targets need no teacher network.
+                normalize_foresight_target_type(foresight_cfg.get("target_type", None))
+                normalize_foresight_teacher_mode(foresight_cfg.get("teacher_mode", None))
+                logger.info(
+                    "Pretrained VAE-direct foresight target enabled: no Wan teacher "
+                    "is instantiated."
                 )
-                teacher_mode = normalize_foresight_teacher_mode(
-                    foresight_cfg.get("teacher_mode", None)
-                )
-                student_layers = foresight_cfg.get("layers")
-                if student_layers is None:
-                    student_layers = [foresight_cfg.get("layer", 15)]
-                elif not isinstance(student_layers, (list, tuple)):
-                    student_layers = [student_layers]
-                encoder_layers = foresight_cfg.get(
-                    "encoder_layers", foresight_cfg.get("encoder_layer", None)
-                )
-                if encoder_layers is None:
-                    encoder_layers = student_layers
-                elif not isinstance(encoder_layers, (list, tuple)):
-                    encoder_layers = [encoder_layers]
-                max_encoder_layer = max(int(layer) for layer in encoder_layers)
-
-                # Copy/build now, before any fine-tuning or checkpoint loading.
-                if target_type == "vae_direct":
-                    if teacher_mode == "online_ema":
-                        raise ValueError(
-                            "VAE-direct targets do not support teacher_mode=online_ema."
-                        )
-                    if teacher_mode == "frozen_random":
-                        foresight_vae = build_random_foresight_vae(
-                            components.vae,
-                            seed=int(foresight_cfg.get("teacher_random_seed", 0)),
-                            device=device,
-                            torch_dtype=torch_dtype,
-                        )
-                        foresight_teacher_path = (
-                            "RANDOM_VAE(seed="
-                            f"{int(foresight_cfg.get('teacher_random_seed', 0))})"
-                        )
-                    else:
-                        logger.info(
-                            "Pretrained VAE-direct foresight target enabled: no Wan teacher "
-                            "is instantiated."
-                        )
-                elif target_type == "patch_embedding":
-                    if teacher_mode != "frozen_random" or max_encoder_layer != 0:
-                        raise ValueError(
-                            "Random Layer0 requires target_type=patch_embedding, "
-                            "teacher_mode=frozen_random, encoder_layers=[0]."
-                        )
-                    foresight_encoder = build_random_foresight_encoder(
-                        video_dit_config,
-                        max_layers=0,
-                        seed=int(foresight_cfg.get("teacher_random_seed", 0)),
-                        device=device,
-                        torch_dtype=torch_dtype,
-                    )
-                elif teacher_mode == "frozen_random":
-                    foresight_encoder = build_random_foresight_encoder(
-                        video_dit_config,
-                        max_layers=max_encoder_layer,
-                        seed=int(foresight_cfg.get("teacher_random_seed", 0)),
-                        device=device,
-                        torch_dtype=torch_dtype,
-                    )
-                elif teacher_mode == "frozen_pretrained" and skip_video_pretrain:
-                    pretrained_teacher, foresight_teacher_path = (
-                        load_wan22_pretrained_video_dit_prefix(
-                            device=device,
-                            torch_dtype=torch_dtype,
-                            model_id=model_id,
-                            dit_config=video_dit_config,
-                            max_layers=max_encoder_layer,
-                        )
-                    )
-                    foresight_encoder = build_foresight_encoder(
-                        pretrained_teacher,
-                        max_layers=max_encoder_layer,
-                        copy_model=False,
-                        source="independently loaded pretrained",
-                    )
-                else:
-                    if skip_video_pretrain:
-                        logger.info(
-                            "Online EMA foresight teacher is initialized from the random "
-                            "policy video expert."
-                        )
-                    foresight_encoder = build_foresight_encoder(
-                        video_expert,
-                        max_layers=(max_encoder_layer if teacher_mode == "online_ema" else None),
-                    )
 
         model = cls(
             video_expert=video_expert,
@@ -598,8 +316,6 @@ class JAMWan(torch.nn.Module):
             action_num_train_timesteps=action_num_train_timesteps,
             loss_lambda_video=loss_lambda_video,
             loss_lambda_action=loss_lambda_action,
-            foresight_encoder=foresight_encoder,
-            foresight_vae=foresight_vae,
             foresight_cfg=foresight_cfg,
         )
         model.model_paths = {
@@ -610,21 +326,8 @@ class JAMWan(torch.nn.Module):
             "action_dit_backbone": (
                 "SKIPPED_PRETRAIN" if skip_action_pretrain else action_dit_pretrained_path
             ),
-            "foresight_teacher": foresight_teacher_path,
         }
         return model
-
-    @property
-    def foresight_encoder(self):
-        if self._foresight_encoder_ref is None:
-            return None
-        return self._foresight_encoder_ref[0]
-
-    @property
-    def foresight_vae(self):
-        if self._foresight_vae_ref is None:
-            return None
-        return self._foresight_vae_ref[0]
 
     def to(self, *args, **kwargs):
         super().to(*args, **kwargs)
@@ -632,67 +335,7 @@ class JAMWan(torch.nn.Module):
         if self.text_encoder is not None:
             self.text_encoder.to(*args, **kwargs)
         self.vae.to(*args, **kwargs)
-        if self.foresight_encoder is not None:
-            self.foresight_encoder.to(*args, **kwargs)
-        if self.foresight_vae is not None:
-            self.foresight_vae.to(*args, **kwargs)
-        if self._foresight_ema_shadow is not None and self.foresight_encoder is not None:
-            teacher_device = next(self.foresight_encoder.parameters()).device
-            self._foresight_ema_shadow = {
-                name: value.to(device=teacher_device, dtype=torch.float32)
-                for name, value in self._foresight_ema_shadow.items()
-            }
         return self
-
-    def _initialize_foresight_ema_shadow(self):
-        if self.foresight_encoder is None:
-            raise ValueError("Cannot initialize EMA shadow without a foresight encoder.")
-        self._foresight_ema_shadow = build_foresight_ema_shadow(self.foresight_encoder)
-        self._foresight_ema_updates = 0
-        shadow_numel = sum(value.numel() for value in self._foresight_ema_shadow.values())
-        logger.info(
-            "Initialized fp32 foresight EMA shadow: %.2f B values, %.2f GiB, decay=%.6f.",
-            shadow_numel / 1e9,
-            shadow_numel * 4 / (1024**3),
-            self.foresight_teacher_ema_decay,
-        )
-
-    @torch.no_grad()
-    def update_foresight_teacher(self) -> bool:
-        """Update the online EMA target after one successful optimizer step."""
-        if self.foresight_teacher_mode != "online_ema":
-            return False
-        if self.foresight_encoder is None or self._foresight_ema_shadow is None:
-            raise RuntimeError("Online EMA teacher is enabled but its encoder/shadow is absent.")
-        update_foresight_ema_teacher_(
-            self.foresight_encoder,
-            self.video_expert,
-            self._foresight_ema_shadow,
-            decay=self.foresight_teacher_ema_decay,
-        )
-        self._foresight_ema_updates += 1
-        if self._foresight_ema_updates == 1:
-            logger.info("Applied first online foresight-teacher EMA update.")
-        return True
-
-    @torch.no_grad()
-    def reset_foresight_teacher_from_student(self) -> bool:
-        """Restart EMA from current student weights after a weight/state resume.
-
-        The unregistered teacher is intentionally absent from normal checkpoints.
-        This gives a coherent restart, but it cannot reconstruct pre-resume EMA
-        history; callers emit an explicit warning when taking this path.
-        """
-        if self.foresight_teacher_mode != "online_ema" or self.foresight_encoder is None:
-            return False
-        student_parameters = dict(self.video_expert.named_parameters())
-        for name, teacher_parameter in self.foresight_encoder.named_parameters():
-            source = student_parameters.get(name)
-            if source is None or source.shape != teacher_parameter.shape:
-                raise ValueError(f"Cannot reset EMA teacher: incompatible student parameter {name!r}.")
-            teacher_parameter.copy_(source)
-        self._initialize_foresight_ema_shadow()
-        return True
 
     @staticmethod
     def _check_resize_height_width(height, width, num_frames):
@@ -896,43 +539,12 @@ class JAMWan(torch.nn.Module):
             if video is None
             else video.to(device=self.device, dtype=self.torch_dtype, non_blocking=True)
         )
-        random_vae_direct = (
-            self.foresight_enabled
-            and self.foresight_target_type == "vae_direct"
-            and self.foresight_teacher_mode == "frozen_random"
-            and self.foresight_vae is not None
-        )
-        foresight_target_latents = None
         if cached_input_latents is not None:
-            if random_vae_direct:
-                raise ValueError(
-                    "Cached policy input latents are not supported with a random VAE teacher."
-                )
             input_latents = cached_input_latents.to(
                 device=self.device,
                 dtype=self.torch_dtype,
                 non_blocking=True,
             )
-        elif random_vae_direct:
-            # The random teacher sees the complete clean clip.  Under the
-            # foresight-only objective the student consumes only latent frame
-            # zero, so encode only the first RGB frame with the pretrained
-            # policy VAE.  Wan's causal VAE makes this first latent identical
-            # to encoding the complete clip and slicing [:, :, 0:1].
-            with torch.no_grad():
-                foresight_target_latents = self.foresight_vae.encode(
-                    input_video,
-                    device=self.device,
-                    tiled=tiled,
-                    tile_size=(30, 52),
-                    tile_stride=(15, 26),
-                )
-            policy_video = (
-                input_video
-                if self.foresight_video_cotrain
-                else input_video[:, :, 0:1].contiguous()
-            )
-            input_latents = self._encode_video_latents(policy_video, tiled=tiled)
         else:
             input_latents = self._encode_video_latents(input_video, tiled=tiled)
 
@@ -974,7 +586,6 @@ class JAMWan(torch.nn.Module):
             "context": context,
             "context_mask": context_mask,
             "input_latents": input_latents,
-            "foresight_target_latents": foresight_target_latents,
             "first_frame_latents": first_frame_latents,
             "fuse_vae_embedding_in_latents": fuse_flag,
             "action": action,
@@ -1080,44 +691,30 @@ class JAMWan(torch.nn.Module):
     def _compute_foresight_loss(
         self,
         video_hidden_by_layer: dict[int, torch.Tensor],
-        action_hidden_by_layer: Optional[dict[int, torch.Tensor]],
         tokens_per_frame: int,
         input_latents: torch.Tensor,
-        foresight_target_latents: Optional[torch.Tensor],
-        context: torch.Tensor,
-        context_mask: torch.Tensor,
-        fuse_vae_embedding_in_latents: bool,
         image_is_pad: Optional[torch.Tensor],
         precomputed_enc_cache: Optional[dict[int, torch.Tensor]] = None,
-    ) -> tuple[torch.Tensor, torch.Tensor]:
-        """Foresight alignment loss. Returns (video_stream_loss, action_stream_loss).
+    ) -> torch.Tensor:
+        """Per-frame VAE-direct foresight loss.
 
-        Modes (independent, can combine):
-          - fused (default): obs tokens align to the offset-averaged encoder target.
-          - per_frame: obs tokens align to EACH future frame separately (own head), keeping
-            temporal structure.
-          - action stream: action-group reps align to spatially-pooled future-frame features,
-            group i -> latent frame i+1.
-        Encoder hidden is run once per distinct encoder layer and reused.
+        For every student layer and every future offset, the shared projector
+        maps the current observation tokens to that latent frame's target; the
+        loss is 1 - cosine, masked for padded frames and averaged over targets.
+        Targets are computed online from the clean VAE latents or read from the
+        compact cache; both pass through the same fixed isometric lift.
         """
         # With precomputed targets the policy may carry only the first latent frame
         # (first_frame_only); the TARGET latent-step count then comes from the cache.
-        target_latents = (
-            input_latents
-            if foresight_target_latents is None
-            else foresight_target_latents
-        )
         if precomputed_enc_cache is not None:
             _any = next(iter(precomputed_enc_cache.values()))
             num_latent_steps = int(_any.shape[1]) // int(tokens_per_frame)
         else:
-            num_latent_steps = int(target_latents.shape[2])
+            num_latent_steps = int(input_latents.shape[2])
         frame_valid = self._foresight_frame_valid_mask(
             image_is_pad=image_is_pad,
             num_latent_steps=num_latent_steps,
         )
-        # Targets either come precomputed (bf16+zstd cache, bit-identical to the
-        # online encoder) or from running the frozen encoder per distinct depth.
         enc_cache: dict[int, torch.Tensor] = {}
         if precomputed_enc_cache is not None:
             for enc_layer in set(self.foresight_encoder_layers):
@@ -1128,145 +725,48 @@ class JAMWan(torch.nn.Module):
                         f"seq_len={enc_hidden.shape[1]} not divisible by tokens_per_frame={tokens_per_frame}."
                     )
                 enc_hidden = enc_hidden.to(
-                    device=target_latents.device,
-                    dtype=target_latents.dtype,
+                    device=input_latents.device,
+                    dtype=input_latents.dtype,
                 )
-                if self.foresight_target_type == "vae_direct":
-                    enc_hidden = lift_foresight_vae_patches(
-                        enc_hidden,
-                        output_dim=int(self.video_expert.hidden_dim),
-                    )
+                enc_hidden = lift_foresight_vae_patches(
+                    enc_hidden,
+                    output_dim=int(self.video_expert.hidden_dim),
+                )
                 enc_cache[enc_layer] = enc_hidden
         else:
             with torch.no_grad():
-                if self.foresight_target_type == "encoder_hidden":
-                    if self.foresight_encoder is None:
-                        raise RuntimeError(
-                            "foresight target cache is enabled but the batch has no "
-                            "`foresight_enc_cache` (dataset not wrapped with ForesightCacheDataset?)"
-                        )
-                    # Single pass to max(encoder_layers), capturing every needed depth on
-                    # the way — bit-identical to per-layer calls, but e.g. [12,14,16,18]
-                    # costs 18 block passes instead of 12+14+16+18=60.
-                    enc_cache, enc_tpf = encode_foresight_hidden_multi(
-                        encoder=self.foresight_encoder,
-                        clean_latents=target_latents,
-                        context=context,
-                        context_mask=context_mask,
-                        capture_layers=set(self.foresight_encoder_layers),
-                        fuse_vae_embedding_in_latents=fuse_vae_embedding_in_latents,
-                    )
-                elif self.foresight_target_type == "patch_embedding":
-                    if self.foresight_encoder is None:
-                        raise RuntimeError("Random Layer0 target encoder is missing.")
-                    enc_hidden, enc_tpf = encode_foresight_patch_embedding(
-                        self.foresight_encoder, target_latents
-                    )
-                    enc_cache = {0: enc_hidden}
-                elif self.foresight_target_type == "vae_direct":
-                    enc_hidden, enc_tpf = encode_foresight_vae_direct(
-                        target_latents,
-                        patch_size=self.video_expert.patch_size,
-                        output_dim=int(self.video_expert.hidden_dim),
-                    )
-                    enc_cache = {0: enc_hidden}
-                else:  # normalize_foresight_target_type makes this unreachable.
-                    raise RuntimeError(
-                        f"Unhandled foresight target type {self.foresight_target_type!r}."
-                    )
+                enc_hidden, enc_tpf = encode_foresight_vae_direct(
+                    input_latents,
+                    patch_size=self.video_expert.patch_size,
+                    output_dim=int(self.video_expert.hidden_dim),
+                )
+                enc_cache = {0: enc_hidden}
                 if enc_tpf != tokens_per_frame:
                     raise ValueError(
-                        "Foresight encoder token grid mismatch: "
-                        f"encoder={enc_tpf} vs policy={tokens_per_frame}."
+                        "Foresight target token grid mismatch: "
+                        f"target={enc_tpf} vs policy={tokens_per_frame}."
                     )
 
-        # ---- video-stream foresight ----
         video_losses = []
         video_weights = []
+        shared = self.foresight_projectors["shared"]
         for student_layer, enc_layer in zip(self.foresight_layers, self.foresight_encoder_layers):
             h_obs = video_hidden_by_layer[student_layer][:, :tokens_per_frame]
             enc_hidden = enc_cache[enc_layer]
-            # Shared mode runs one backbone per student layer, reused across its frame heads.
-            shared = self.foresight_projectors["shared"] if self.foresight_shared_projector else None
-            feat = shared.backbone(h_obs) if shared is not None else None
-
-            def _predict(key):
-                if shared is not None:
-                    return shared.head(feat, key)
-                return self.foresight_projectors[key](h_obs)
-
-            if self.foresight_per_frame:
-                with torch.no_grad():
-                    targets, valid = per_frame_targets(enc_hidden, tokens_per_frame, frame_valid)
-                for idx, o in enumerate(self.foresight_offsets):
-                    pred = _predict(f"{student_layer}_{o}")
-                    video_losses.append(self._cos_align_loss(pred, targets[:, o], valid[:, o]))
-                    if self.foresight_offset_weights is not None:
-                        video_weights.append(self.foresight_offset_weights[idx])
-                    else:
-                        video_weights.append(1.0)
-            else:
-                with torch.no_grad():
-                    target, sample_valid = fuse_future_targets(
-                        enc_hidden, tokens_per_frame, self.foresight_offsets, frame_valid
-                    )
-                pred = _predict(str(student_layer))
-                video_losses.append(self._cos_align_loss(pred, target, sample_valid))
-                video_weights.append(1.0)
+            # One shared trunk pass per student layer, reused across its frame heads.
+            feat = shared.backbone(h_obs)
+            with torch.no_grad():
+                targets, valid = per_frame_targets(enc_hidden, tokens_per_frame, frame_valid)
+            for idx, o in enumerate(self.foresight_offsets):
+                pred = shared.head(feat, f"{student_layer}_{o}")
+                video_losses.append(self._cos_align_loss(pred, targets[:, o], valid[:, o]))
+                if self.foresight_offset_weights is not None:
+                    video_weights.append(self.foresight_offset_weights[idx])
+                else:
+                    video_weights.append(1.0)
         losses_v = torch.stack(video_losses)
         w_v = losses_v.new_tensor(video_weights)
-        loss_video_stream = (losses_v * w_v).sum() / w_v.sum()
-
-        # ---- action-stream foresight ----
-        if self.foresight_action_heads is None or action_hidden_by_layer is None:
-            return loss_video_stream, loss_video_stream.new_zeros(())
-
-        # Action group i (of num_groups = num_latent_frames - 1) aligns to latent frame i+1.
-        # per_token=False: align to the frame's spatially-pooled single vector (legacy).
-        # per_token=True : align to the frame's FULL spatial token map (richer, like video stream).
-        num_latent_frames = int(input_latents.shape[2])
-        num_groups = num_latent_frames - 1
-        per_token = self.foresight_action_per_token
-        per_step = self.foresight_action_per_step
-        action_losses = []
-        with torch.no_grad():
-            # per-token target: [B, f, tokens_per_frame, D_enc]; pooled: [B, f, D_enc]; valid: [B, f].
-            targets_by_enc = {}
-            for enc_layer in set(self.foresight_encoder_layers):
-                tg, vd = per_frame_targets(enc_cache[enc_layer], tokens_per_frame, frame_valid)
-                targets_by_enc[enc_layer] = (tg, tg.mean(dim=2), vd)
-        for a_layer in self.foresight_action_layers:
-            a_hidden = action_hidden_by_layer[a_layer]  # [B, action_horizon, D_action]
-            ah = a_hidden.shape[1]
-            if ah % num_groups != 0:
-                raise ValueError(
-                    f"action_horizon {ah} not divisible by num_groups {num_groups} for action foresight."
-                )
-            steps_per_group = ah // num_groups
-            # use the first configured encoder layer as the action target source
-            enc_layer = self.foresight_encoder_layers[0]
-            tg_full, pooled, vd = targets_by_enc[enc_layer]
-            head = self.foresight_action_heads[str(a_layer)]
-            if per_step:
-                # No within-group averaging: each of the steps_per_group action steps predicts its
-                # transition's (pooled) future frame. Treat the steps as the "tokens" dim of the loss.
-                a_grouped = a_hidden.view(a_hidden.shape[0], num_groups, steps_per_group, a_hidden.shape[2])
-                for i in range(num_groups):
-                    pred_i = head(a_grouped[:, i])                                   # [B, S, D_enc]
-                    tgt_i = pooled[:, i + 1].unsqueeze(1).expand(-1, steps_per_group, -1)  # [B, S, D_enc]
-                    action_losses.append(self._cos_align_loss(pred_i, tgt_i, vd[:, i + 1]))
-            else:
-                grp = a_hidden.view(a_hidden.shape[0], num_groups, steps_per_group, a_hidden.shape[2]).mean(dim=2)
-                for i in range(num_groups):
-                    if per_token:
-                        pred_i = head(grp[:, i], tokens_per_frame)  # [B, tokens_per_frame, D_enc]
-                        tgt_i = tg_full[:, i + 1]                    # [B, tokens_per_frame, D_enc]
-                    else:
-                        pred_i = head(grp[:, i]).unsqueeze(1)        # [B, 1, D_enc]
-                        tgt_i = pooled[:, i + 1].unsqueeze(1)        # [B, 1, D_enc]
-                    action_losses.append(self._cos_align_loss(pred_i, tgt_i, vd[:, i + 1]))
-        loss_action_stream = torch.stack(action_losses).mean()
-        return loss_video_stream, loss_action_stream
+        return (losses_v * w_v).sum() / w_v.sum()
 
     def training_loss(self, sample, tiled: bool = False):
         inputs = self.build_inputs(sample, tiled=tiled)
@@ -1367,19 +867,11 @@ class JAMWan(torch.nn.Module):
             },
         )
         video_hidden_by_layer = None
-        action_hidden_by_layer = None
         if self.foresight_enabled:
-            if self.foresight_action_layers is not None:
-                tokens_out, video_hidden_by_layer, action_hidden_by_layer = self.mot(
-                    **mot_kwargs,
-                    return_video_hidden_layers=self.foresight_layers,
-                    return_action_hidden_layers=self.foresight_action_layers,
-                )
-            else:
-                tokens_out, video_hidden_by_layer = self.mot(
-                    **mot_kwargs,
-                    return_video_hidden_layers=self.foresight_layers,
-                )
+            tokens_out, video_hidden_by_layer = self.mot(
+                **mot_kwargs,
+                return_video_hidden_layers=self.foresight_layers,
+            )
         else:
             tokens_out = self.mot(**mot_kwargs)
 
@@ -1440,25 +932,15 @@ class JAMWan(torch.nn.Module):
                 precomputed_enc_cache = {
                     L: cached[:, i] for i, L in enumerate(self.foresight_encoder_layers)
                 }
-            loss_foresight, loss_action_foresight = self._compute_foresight_loss(
+            loss_foresight = self._compute_foresight_loss(
                 video_hidden_by_layer=video_hidden_by_layer,
-                action_hidden_by_layer=action_hidden_by_layer,
                 tokens_per_frame=int(video_pre["meta"]["tokens_per_frame"]),
                 input_latents=input_latents,
-                foresight_target_latents=inputs["foresight_target_latents"],
-                context=context,
-                context_mask=context_mask,
-                fuse_vae_embedding_in_latents=inputs["fuse_vae_embedding_in_latents"],
                 image_is_pad=image_is_pad,
                 precomputed_enc_cache=precomputed_enc_cache,
             )
             loss_total = loss_total + self.loss_lambda_foresight * loss_foresight
             loss_dict["loss_foresight"] = self.loss_lambda_foresight * float(loss_foresight.detach().item())
-            if self.foresight_action_heads is not None:
-                loss_total = loss_total + self.loss_lambda_action_foresight * loss_action_foresight
-                loss_dict["loss_action_foresight"] = self.loss_lambda_action_foresight * float(
-                    loss_action_foresight.detach().item()
-                )
 
         return loss_total, loss_dict
 
@@ -1986,26 +1468,15 @@ class JAMWan(torch.nn.Module):
             "step": step,
             "torch_dtype": str(self.torch_dtype),
         }
-        if self.foresight_enabled and self.foresight_target_type != "encoder_hidden":
+        if self.foresight_enabled:
             payload["foresight_target_config"] = {
                 "type": self.foresight_target_type,
                 "encoder_layers": tuple(self.foresight_encoder_layers),
-            }
-        if self.foresight_teacher_mode != "frozen_pretrained":
-            payload["foresight_teacher_config"] = {
-                "mode": self.foresight_teacher_mode,
-                "random_seed": self.foresight_teacher_random_seed,
-                "ema_decay": self.foresight_teacher_ema_decay,
-                "ema_updates": self._foresight_ema_updates,
-                "encoder_layers": tuple(self.foresight_encoder_layers),
-                "video_cotrain": self.foresight_video_cotrain,
             }
         if self.proprio_encoder is not None:
             payload["proprio_encoder"] = self.proprio_encoder.state_dict()
         if self.foresight_projectors is not None:
             payload["foresight_projectors"] = self.foresight_projectors.state_dict()
-        if getattr(self, "foresight_action_heads", None) is not None:
-            payload["foresight_action_heads"] = self.foresight_action_heads.state_dict()
         if optimizer is not None:
             payload["optimizer"] = optimizer.state_dict()
         torch.save(payload, path)
@@ -2029,40 +1500,35 @@ class JAMWan(torch.nn.Module):
             self.video_expert.load_state_dict(payload["dit"], strict=False)
         else:
             raise ValueError(f"Checkpoint missing both `mot` and `dit` keys: {path}")
-        teacher_metadata = payload.get("foresight_teacher_config")
-        if teacher_metadata is not None:
-            saved_mode = normalize_foresight_teacher_mode(teacher_metadata.get("mode"))
-            if saved_mode != self.foresight_teacher_mode:
+        # Checkpoints record their foresight target and teacher. They matter only when training
+        # with foresight; action inference (foresight disabled) runs no foresight computation.
+        if self.foresight_enabled:
+            def _same(saved, current, normalize):
+                try:
+                    return normalize(saved) == current
+                except ValueError:
+                    return False
+
+            teacher_metadata = payload.get("foresight_teacher_config")
+            if teacher_metadata is not None and not _same(
+                teacher_metadata.get("mode"), self.foresight_teacher_mode, normalize_foresight_teacher_mode
+            ):
                 logger.warning(
-                    "Checkpoint teacher mode %s differs from configured mode %s. "
-                    "This is harmless for action inference, but invalid for training resume.",
-                    saved_mode,
+                    "Checkpoint foresight teacher mode %s differs from configured mode %s; "
+                    "invalid for training resume.",
+                    teacher_metadata.get("mode"),
                     self.foresight_teacher_mode,
                 )
-            elif saved_mode == "frozen_random":
-                saved_seed = int(teacher_metadata.get("random_seed", 0))
-                if saved_seed != self.foresight_teacher_random_seed:
-                    logger.warning(
-                        "Random-teacher seed differs: checkpoint=%d config=%d. "
-                        "This is harmless for action inference, but invalid for training resume.",
-                        saved_seed,
-                        self.foresight_teacher_random_seed,
-                    )
-        target_metadata = payload.get("foresight_target_config")
-        if target_metadata is not None:
-            saved_target_type = normalize_foresight_target_type(target_metadata.get("type"))
-            if saved_target_type != self.foresight_target_type:
+            target_metadata = payload.get("foresight_target_config")
+            if target_metadata is not None and not _same(
+                target_metadata.get("type"), self.foresight_target_type, normalize_foresight_target_type
+            ):
                 logger.warning(
-                    "Checkpoint foresight target type %s differs from configured type %s. "
-                    "This is harmless for action inference, but invalid for training resume.",
-                    saved_target_type,
+                    "Checkpoint foresight target type %s differs from configured type %s; "
+                    "invalid for training resume.",
+                    target_metadata.get("type"),
                     self.foresight_target_type,
                 )
-        if self.reset_foresight_teacher_from_student():
-            logger.warning(
-                "Weight-only EMA resume restarted the unregistered teacher from the loaded "
-                "student; pre-checkpoint EMA history is not reconstructible."
-            )
         if self.proprio_encoder is not None:
             if "proprio_encoder" in payload:
                 self.proprio_encoder.load_state_dict(payload["proprio_encoder"], strict=True)
@@ -2074,10 +1540,6 @@ class JAMWan(torch.nn.Module):
         if self.foresight_projectors is not None:
             if "foresight_projectors" in payload:
                 self.foresight_projectors.load_state_dict(payload["foresight_projectors"], strict=True)
-            elif "foresight_projector" in payload and len(self.foresight_layers) == 1:
-                # Back-compat: load a single-layer checkpoint into the sole projector.
-                only = self.foresight_projectors[str(self.foresight_layers[0])]
-                only.load_state_dict(payload["foresight_projector"], strict=True)
             else:
                 logger.warning(
                     "Checkpoint has no `foresight_projectors` weights; keeping current projector params."
@@ -2087,9 +1549,6 @@ class JAMWan(torch.nn.Module):
                 "Checkpoint contains foresight projector weights but foresight is disabled; ignoring "
                 "(inference does not use the projector)."
             )
-
-        if getattr(self, "foresight_action_heads", None) is not None and "foresight_action_heads" in payload:
-            self.foresight_action_heads.load_state_dict(payload["foresight_action_heads"], strict=True)
 
         if optimizer is not None and "optimizer" in payload:
             optimizer.load_state_dict(payload["optimizer"])

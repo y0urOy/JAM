@@ -2,7 +2,8 @@
 
 defaults:
   - train
-  - override /task: robotwin_uncond_3cam_384_1e-4
+  - override /task: robotwin_ovis_u1_jam_foresight
+  - override /hydra/job_logging: stdout
   - _self_
 
 ckpt: null
@@ -47,8 +48,8 @@ EVALUATION:
   # order (real-checkpoint max action delta 0.015625), so it is opt-in only.
   trim_text_context_padding: false
   text_context_cache_max_entries: 128
-  # Optional fast, strictly paired ablation protocol.  Null preserves the
-  # official online expert seed filter used for paper reproduction.
+  # Optional fixed seed/instruction manifest.  Null keeps the official online
+  # expert seed filter used for paper reproduction.
   paired_manifest_path: null
   robotwin_camera_layout: ${data.train.robotwin_camera_layout}
   # The released RoboTwin checkpoint/evaluator keeps actions in the dataset's

@@ -12,7 +12,6 @@ import torch.nn as nn
 from jam_multimodal.models.backbones.action_dit_qwen35 import (
     ActionDiTQwen35Native,
     QWEN_ACTION_ATTENTION_CAUSAL,
-    QWEN_ACTION_ATTENTION_PREFIX_LM_BIDIRECTIONAL,
 )
 
 
@@ -316,56 +315,8 @@ def test_directionality_and_padding():
 
 
 @torch.no_grad()
-def test_prefix_lm_bidirectional_action_suffix():
-    torch.manual_seed(23)
-    source, config = build_tiny_source()
-    action = ActionDiTQwen35Native.from_qwen_backbone(
-        source,
-        action_dim=7,
-        max_action_horizon=16,
-        timestep_embed_dim=32,
-        action_attention_mode=QWEN_ACTION_ATTENTION_PREFIX_LM_BIDIRECTIONAL,
-    ).eval()
-    assert (
-        action.action_attention_mode
-        == QWEN_ACTION_ATTENTION_PREFIX_LM_BIDIRECTIONAL
-    )
-    assert_source_copy_is_exact(source, action)
-
-    prefixes = tuple(torch.randn(2, 6, config.hidden_size) for _ in range(4))
-    condition = build_condition(action, prefixes)
-    noisy_action = torch.randn(2, 5, 7)
-    timestep = torch.tensor([50.0, 500.0])
-    reference = action(noisy_action, timestep, condition)
-
-    # Layer four is full attention. Its prefix-LM suffix mask must let a late
-    # noisy action affect earlier predictions, unlike the causal control.
-    changed_late = noisy_action.clone()
-    changed_late[:, -1] += 9.0
-    late_output = action(changed_late, timestep, condition)
-    assert not torch.allclose(reference[:, :-1], late_output[:, :-1])
-
-    layout = action._layout(condition, action_len=noisy_action.shape[1])
-    valid_mask = layout["valid_mask"]
-    action_indices = layout["action_indices"]
-    assert isinstance(valid_mask, torch.Tensor)
-    assert isinstance(action_indices, torch.Tensor)
-    additive = action._build_full_prefix_lm_mask(
-        valid_mask,
-        action_indices,
-        dtype=torch.float32,
-    )
-    allowed = additive == 0
-    for batch_idx in range(valid_mask.shape[0]):
-        # Every action query reads all valid prefix/proprio/action keys.
-        for query_idx in action_indices[batch_idx].tolist():
-            assert torch.equal(allowed[batch_idx, 0, query_idx], valid_mask[batch_idx])
-        # Prefix query zero remains causal and cannot read the action suffix.
-        assert bool(allowed[batch_idx, 0, 0, 0])
-        assert not bool(
-            allowed[batch_idx, 0, 0, action_indices[batch_idx, 0]].item()
-        )
-
+def test_unknown_action_attention_mode_fails_loudly():
+    source, _ = build_tiny_source()
     try:
         ActionDiTQwen35Native.from_qwen_backbone(
             source,
@@ -384,7 +335,7 @@ def main():
     test_forward_backward_and_copy()
     test_discarded_prefix_mlp_optimization_equivalence()
     test_directionality_and_padding()
-    test_prefix_lm_bidirectional_action_suffix()
+    test_unknown_action_attention_mode_fails_loudly()
     print("QWEN35 NATIVE ACTION CPU CHECKS PASSED")
 
 

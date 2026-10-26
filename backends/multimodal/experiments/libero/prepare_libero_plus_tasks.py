@@ -105,7 +105,7 @@ def sample_tasks(tasks: list[TaskSpec], ratio: float, seed: int) -> list[TaskSpe
     for suite in SUITE_ORDER:
         suite_tasks = [task for task in tasks if task.suite == suite]
         count = min(len(suite_tasks), max(1, math.ceil(len(suite_tasks) * ratio)))
-        # Match ImageWAM's public run_libero_manager.py exactly: seed an
+        # Match ImageWAM's public LIBERO-Plus sampling exactly: seed an
         # independent Python RNG with "<seed>:<suite>", sample task IDs without
         # replacement, then restore task-ID order in the manifest.
         rng = random.Random(f"{seed}:{suite}")

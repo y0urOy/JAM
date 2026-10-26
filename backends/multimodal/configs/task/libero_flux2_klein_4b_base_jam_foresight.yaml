@@ -1,7 +1,8 @@
 # @package _global_
 
-# Paired with the official FLUX.2 Klein 4B LIBERO baseline. Dataset, batch,
-# optimizer and epoch schedule are unchanged; only the model objective differs.
+# LIBERO FLUX.2 Klein 4B policy with the foresight objective (generation loss off).
+# It uses the LIBERO budget of the other multimodal recipes: global batch 128 for
+# ten epochs (21,700 updates; the launcher sets the per-GPU batch).
 defaults:
   - override /data: libero_omnigen2_pair
   - override /model: jam_flux2_klein_4b_base_foresight
@@ -14,12 +15,17 @@ data:
     qwen_context_len: 512
     qwen_text_cache_format: qwen3_flux2
 
-batch_size: 10
+batch_size: 16
 num_workers: 24
 prefetch_factor: 2
 persistent_workers: true
 
 learning_rate: 1e-4
+# Avoid the CUDA foreach AdamW failure mode previously observed with very large
+# flattened parameter groups.  This changes only optimizer implementation, not
+# the AdamW equations or scientific configuration.
+optimizer_foreach: false
+optimizer_max_group_numel: 500000000
 num_epochs: 10
 max_steps: null
 log_every: 10

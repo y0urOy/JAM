@@ -124,8 +124,8 @@ def _apply_model_overrides(cfg: DictConfig, usr_args: Dict[str, Any]) -> None:
         for key, value in model_overrides.items():
             cfg.model[key] = value
 
-    # Keep compatibility with older launch wrappers that forwarded only these paths.
-    for key in ("omnigen2_model_path", "omnigen2_vae_path", "qwen_path", "ovis_u1_model_path"):
+    # Keep compatibility with older launch wrappers that forwarded only this path.
+    for key in ("ovis_u1_model_path",):
         value = usr_args.get(key)
         if not _is_none_like(value):
             cfg.model[key] = value

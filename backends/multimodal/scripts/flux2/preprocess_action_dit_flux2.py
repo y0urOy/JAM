@@ -87,7 +87,7 @@ def main() -> None:
         help="Path to a local FLUX.2 source checkout. Defaults to FLUX2_SRC.",
     )
     parser.add_argument("--flux2-model-path", required=True)
-    parser.add_argument("--variant", default="klein-base-4b", choices=["klein-base-4b", "klein-base-9b"])
+    parser.add_argument("--variant", default="klein-base-4b", choices=["klein-base-4b"])
     parser.add_argument("--output", required=True)
     parser.add_argument("--device", default="cpu")
     parser.add_argument("--action-dim", type=int, default=7)
@@ -99,9 +99,9 @@ def main() -> None:
         raise ValueError("Set --flux2-src-path or the FLUX2_SRC environment variable.")
 
     ensure_flux2_importable(args.flux2_src_path)
-    from flux2.model import Flux2, Klein4BParams, Klein9BParams
+    from flux2.model import Flux2, Klein4BParams
 
-    params = Klein4BParams() if args.variant == "klein-base-4b" else Klein9BParams()
+    params = Klein4BParams()
     with torch.device("meta"):
         flux2 = Flux2(params).to(torch.bfloat16)
     flux2.load_state_dict(load_sft(args.flux2_model_path, device=args.device), strict=True, assign=True)

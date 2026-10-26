@@ -1,0 +1,17 @@
+# RoboTwin 2.0 simulator dependencies: RoboTwin bf44be5 script/requirements.txt at the paper environment's
+# versions, plus toppra (an MPlib and RoboTwin dependency) and setuptools 81. Packages that the policy
+# environment pins resolve to its constraints; the instruction-generation clients and the unused moviepy
+# are left out. SAPIEN 3.0.0b1 and MPlib 0.2.1 are installed first, separately (docs/INSTALL.md).
+transforms3d==0.4.2
+gymnasium==0.29.1
+trimesh==4.4.3
+open3d==0.18.0
+toppra==0.6.3
+h5py==3.16.0
+zarr==2.18.3
+ffmpeg==1.4
+pyglet==1.5.31
+pydantic
+termcolor
+# SAPIEN 3.0.0b1 imports pkg_resources, which setuptools 82 removed.
+setuptools==81.0.0

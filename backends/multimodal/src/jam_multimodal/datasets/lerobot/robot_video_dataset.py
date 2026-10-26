@@ -360,9 +360,9 @@ class RobotVideoDataset(torch.utils.data.Dataset):
             "proprio_is_pad": sample["proprio_is_pad"],
         }
         # Optional sample provenance.  Keep these numeric identifiers through
-        # collation so analysis tools (for example the probe scripts) can map
-        # each sample back to its sample index, dataset root, episode and frame.
-        # They do not affect training losses or model inference.
+        # collation so each sample can be mapped back to its sample index,
+        # dataset root, episode and frame.  They do not affect training losses
+        # or model inference.
         if "idx" in sample:
             data["sample_index"] = torch.as_tensor(sample["idx"], dtype=torch.long).reshape(-1)[0]
         for key in ("dataset_index", "episode_index", "frame_index"):
@@ -400,7 +400,7 @@ class RobotVideoDataset(torch.utils.data.Dataset):
         if not os.path.exists(cache_path):
             raise FileNotFoundError(
                 f"Missing text embedding cache: {cache_path}. "
-                "Run scripts/omnigen2/precompute_text_embeds.py first."
+                "Build the instruction cache first."
             )
         payload = torch.load(cache_path, map_location="cpu")
         context = payload["context"]
@@ -444,8 +444,8 @@ class RobotVideoDataset(torch.utils.data.Dataset):
         if not os.path.exists(cache_path):
             raise FileNotFoundError(
                 f"Missing Qwen text embedding cache: {cache_path}. "
-                "Use qwen_text_cache_format='qwen2_5_vl' with scripts/omnigen2/precompute_qwen_embeds.py, "
-                "or qwen_text_cache_format='qwen3_flux2' with scripts/flux2/precompute_flux2_qwen3_embeds.py."
+                "Build it with `python tools/jam.py text-cache <recipe>` "
+                "(scripts/flux2/precompute_flux2_qwen3_embeds.py, qwen_text_cache_format='qwen3_flux2')."
             )
         payload = torch.load(cache_path, map_location="cpu")
         context = payload["text_hidden_states"]

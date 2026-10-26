@@ -1,5 +1,5 @@
 # Foresight variant of jam_ovis_u1: generation loss OFF, Wan-recipe
-# foresight alignment ON (configurable frozen Yak teacher, cond-token hiddens, cosine).
+# foresight alignment ON (frozen pretrained Yak teacher, cond-token hiddens, cosine).
 # Only deltas vs jam_ovis_u1.yaml: loss.lambda_video=0 + the foresight block.
 _target_: jam_multimodal.runtime.create_jam_ovis_u1
 ovis_u1_model_path: ???
@@ -32,11 +32,9 @@ loss:
   lambda_action: 1.0
 foresight:
   enabled: true
-  # Teacher source. Keep the historical pretrained self-teacher as the default;
-  # ablations can select frozen_random without changing existing runs.
+  # Teacher source: the frozen pretrained Yak self-teacher.
   teacher_mode: frozen_pretrained
-  # Used only by frozen_random. Construction is RNG-isolated, so changing the
-  # teacher does not perturb projector initialization or the training stream.
+  # Recorded with the recipe; the pretrained teacher has no random initialization.
   teacher_random_seed: 42
   # drop_target_tokens (default ON): drop the (clean) target tokens from the STUDENT's video
   # stream — the student never sees the future; it is only asked to MATCH the

@@ -1,4 +1,5 @@
 import csv
+import importlib.metadata
 import json
 import os
 import subprocess
@@ -131,8 +132,22 @@ class RunningState:
     process: subprocess.Popen[str]
 
 
+def _require_paper_sapien() -> None:
+    """RoboTwin 2.0 success rates are comparable only under SAPIEN 3.0.0b1."""
+    try:
+        version = importlib.metadata.version("sapien")
+    except importlib.metadata.PackageNotFoundError:
+        raise SystemExit("SAPIEN is not installed; see docs/INSTALL.md.") from None
+    if version != "3.0.0b1" and os.environ.get("JAM_ALLOW_SAPIEN_VERSION") != version:
+        raise SystemExit(
+            f"RoboTwin evaluation expects SAPIEN 3.0.0b1, found {version}; other versions give "
+            f"success rates that are not comparable. Set JAM_ALLOW_SAPIEN_VERSION={version} to run anyway."
+        )
+
+
 @hydra.main(version_base="1.3", config_path="../../configs", config_name="sim_robotwin.yaml")
 def main(cfg: DictConfig):
+    _require_paper_sapien()
     if cfg.ckpt is None:
         raise ValueError("`ckpt` must not be None.")
     if not SINGLE_ENTRY.exists():
@@ -261,8 +276,9 @@ def main(cfg: DictConfig):
             running_states.append(launch_phase(task_name=task_name, gpu_id=gpu_id, phase="clean"))
 
     def write_outputs() -> None:
-        clean_mean = _mean_or_none([task_rates[t]["clean"] for t in tasks])
-        random_mean = _mean_or_none([task_rates[t]["random"] for t in tasks])
+        complete = all(task_rates[t][phase] is not None for t in tasks for phase in ("clean", "random"))
+        clean_mean = _mean_or_none([task_rates[t]["clean"] for t in tasks]) if complete else None
+        random_mean = _mean_or_none([task_rates[t]["random"] for t in tasks]) if complete else None
 
         with summary_csv.open("w", encoding="utf-8", newline="") as f:
             writer = csv.writer(f)
@@ -284,6 +300,7 @@ def main(cfg: DictConfig):
                 "instruction_type": str(cfg.EVALUATION.instruction_type),
                 "settings": ["clean", "randomized"],
             },
+            "complete": complete,
             "per_task": [
                 {
                     "task_name": task,

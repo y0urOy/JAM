@@ -3,9 +3,10 @@
 # RoboTwin Ovis-U1 policy with the LIBERO Ovis foresight
 # objective.  Dataset, optimizer, resolution, action horizon, and the public
 # repository's per-rank batch/epoch settings stay aligned with the official
-# robotwin_ovis_u1_jam task.  Only the auxiliary visual objective changes:
-# generation loss is disabled and the student predicts the frozen Yak
-# layer-11 representation of the real t+16 endpoint.
+# Ovis-U1 RoboTwin generation task.  Only the
+# auxiliary visual objective changes: generation loss is disabled and the
+# student predicts the frozen Yak layer-11 representation of the real t+16
+# endpoint.
 defaults:
   - override /data: robotwin_omnigen2
   - override /model: jam_ovis_u1_foresight

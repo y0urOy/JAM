@@ -53,6 +53,8 @@ class AIMv2SwiGLUFFN(nn.Module):
 class VisionRotaryEmbedding(nn.Module):
     def __init__(self, dim: int, theta: float = 10000.0) -> None:
         super().__init__()
+        self.dim = dim
+        self.theta = theta
         inv_freq = 1.0 / (theta ** (torch.arange(0, dim, 2, dtype=torch.float) / dim))
         self.register_buffer("inv_freq", inv_freq, persistent=False)
 
@@ -344,6 +346,16 @@ class AIMv2PretrainedModel(PreTrainedModel):
     main_input_name = "pixel_values"
     _no_split_modules = ["AIMv2ViTPreprocessor", "AIMv2Block"]
     _supports_sdpa = True
+
+    def _init_weights(self, module):
+        # transformers>=5 builds the model on the meta device and refills every
+        # non-persistent buffer with torch.empty_like(); recompute inv_freq.
+        if isinstance(module, VisionRotaryEmbedding):
+            inv_freq = 1.0 / (module.theta ** (torch.arange(0, module.dim, 2, dtype=torch.float, device=module.inv_freq.device) / module.dim))
+            with torch.no_grad():
+                module.inv_freq.copy_(inv_freq.to(module.inv_freq.dtype))
+            return
+        super()._init_weights(module)
 
 
 class AIMv2Model(AIMv2PretrainedModel):

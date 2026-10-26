@@ -147,7 +147,6 @@ def load_wan22_ti2v_5b_components(
     redirect_common_files: bool = True,
     dit_config: dict[str, Any] | None = None,
     skip_dit_load_from_pretrain: bool = False,
-    dit_random_seed: int | None = None,
     load_text_encoder: bool = True,
 ):
     logger.info("Loading Wan2.2-TI2V-5B components...")
@@ -169,21 +168,11 @@ def load_wan22_ti2v_5b_components(
         tokenizer_config.download_if_necessary()
 
     if skip_dit_load_from_pretrain:
-        seed_note = "run RNG" if dit_random_seed is None else f"seed={int(dit_random_seed)}"
         logger.info(
             "Skipping pretrained video DiT load (`skip_dit_load_from_pretrain=True`); "
-            "initializing video expert randomly (%s).",
-            seed_note,
+            "initializing video expert randomly (run RNG)."
         )
-        if dit_random_seed is None:
-            dit = WanVideoDiT(**validated_dit_config)
-        else:
-            # WanVideoDiT is constructed on CPU. Isolate an explicit student
-            # seed so a random policy video expert neither aliases a random
-            # teacher initialized from the run seed nor shifts later RNG users.
-            with torch.random.fork_rng(devices=[]):
-                torch.default_generator.manual_seed(int(dit_random_seed))
-                dit = WanVideoDiT(**validated_dit_config)
+        dit = WanVideoDiT(**validated_dit_config)
         dit = dit.to(device=device, dtype=torch_dtype)
         dit_path = SKIPPED_PRETRAIN_SENTINEL
     else:
@@ -231,51 +220,3 @@ def load_wan22_ti2v_5b_components(
         text_encoder_path=text_encoder_path,
         tokenizer_path=tokenizer_path,
     )
-
-
-def load_wan22_pretrained_video_dit_prefix(
-    *,
-    device: str = "cuda",
-    torch_dtype: torch.dtype = torch.bfloat16,
-    model_id: str = "Wan-AI/Wan2.2-TI2V-5B",
-    dit_config: dict[str, Any],
-    max_layers: int,
-) -> tuple[WanVideoDiT, str]:
-    """Load an independent pretrained Wan prefix for a frozen teacher.
-
-    This path is used when the trainable policy video expert is intentionally
-    random, so copying that expert would silently turn a requested pretrained
-    teacher into another random teacher.
-    """
-    validated_dit_config = _validate_dit_config(dit_config)
-    configured_layers = int(validated_dit_config["num_layers"])
-    max_layers = int(max_layers)
-    if not 1 <= max_layers <= configured_layers:
-        raise ValueError(
-            f"Pretrained teacher depth must be in [1, {configured_layers}], got {max_layers}."
-        )
-
-    teacher_config = dict(validated_dit_config)
-    teacher_config["num_layers"] = max_layers
-    teacher_config["video_attention_mask_mode"] = "bidirectional"
-    teacher_config["use_gradient_checkpointing"] = False
-
-    dit_model_config = ModelConfig(
-        model_id=model_id,
-        origin_file_pattern="diffusion_pytorch_model*.safetensors",
-    )
-    dit_model_config.download_if_necessary()
-    teacher = _load_registered_model(
-        dit_model_config.path,
-        "wan_video_dit",
-        torch_dtype=torch_dtype,
-        device=device,
-        model_kwargs_override=teacher_config,
-    )
-    teacher_path = str(dit_model_config.path)
-    logger.info(
-        "Loaded independent pretrained video-DiT teacher prefix: layers=%d path=%s.",
-        max_layers,
-        teacher_path,
-    )
-    return teacher, teacher_path
