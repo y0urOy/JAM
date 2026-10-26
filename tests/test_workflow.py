@@ -26,7 +26,7 @@ from workflow import (begin_training, finish_training, latest_checkpoint, load_r
                       python_executable)
 
 
-LIBERO_RECIPES = ['wan-jam', 'ovis-jam', 'qwen-jam', 'dino-b-jam', 'dino-l-jam', 'flux-jam-libero']
+LIBERO_RECIPES = ['libero-wan-jam', 'libero-ovis-jam', 'libero-qwen-jam', 'libero-dino-b-jam', 'libero-dino-l-jam', 'libero-flux-jam']
 ROBOTWIN_RECIPES = ['robotwin-wan-jam', 'robotwin-ovis-jam', 'robotwin-flux-jam', 'robotwin-qwen-jam']
 
 
@@ -80,25 +80,25 @@ def test_robotwin_pipeline_evaluates_its_own_checkpoint(recipe, tmp_path):
                                      ('--node-rank','1'), ('--workers','-1')])
 def test_invalid_topology_rejected(options):
     with pytest.raises(ValueError):
-        jam.command_plan(args('train', 'wan-jam', *options))
+        jam.command_plan(args('train', 'libero-wan-jam', *options))
 
 
 @pytest.mark.parametrize('override', ['batch_size=1', '++gradient_accumulation_steps=7',
                                      '++output_dir=/another/run', 'task=some_other_model'])
 def test_training_cannot_silently_bypass_topology_and_run_directory(override):
     with pytest.raises(ValueError, match='managed'):
-        jam.command_plan(args('train', 'wan-jam', '--override', override))
+        jam.command_plan(args('train', 'libero-wan-jam', '--override', override))
 
 
 def test_explicit_step_and_pipeline_protocol_validation(tmp_path):
-    plan, _ = jam.command_plan(args('train-eval', 'wan-jam', '--override', 'max_steps=3'))
+    plan, _ = jam.command_plan(args('train-eval', 'libero-wan-jam', '--override', 'max_steps=3'))
     assert plan['expected_checkpoint'].endswith('step_000003.pt')
     for benchmarks in [('robotwin',), ('libero', 'libero')]:
         with pytest.raises(ValueError):
-            jam.command_plan(args('train-eval', 'wan-jam', '--benchmarks', *benchmarks))
+            jam.command_plan(args('train-eval', 'libero-wan-jam', '--benchmarks', *benchmarks))
 
 
-def make_run(tmp_path, recipe='ovis-jam'):
+def make_run(tmp_path, recipe='libero-ovis-jam'):
     run = tmp_path / 'original'
     parsed = args('train', recipe, '--output', str(run), '--override', 'seed=7',
                   '--override', 'model.foresight.lambda_foresight=0.25')
@@ -124,7 +124,7 @@ def test_relocated_run_preserves_pairing_and_overrides(tmp_path):
                   '--model-root', str(tmp_path / 'relocated models'))
     plan, _ = jam.command_plan(parsed)
     command = plan['commands'][0]
-    assert plan['recipe'] == 'ovis-jam'
+    assert plan['recipe'] == 'libero-ovis-jam'
     assert str(moved / 'checkpoints/weights/step_10.pt') in command
     assert str(moved / 'dataset_stats.json') in command
     assert 'seed=7' in command
@@ -140,13 +140,13 @@ def test_run_recorded_with_an_environment_profile_still_evaluates(tmp_path):
     record['environment'] = record['recipe_spec']['environment'] = 'ovis'
     (run / 'run.json').write_text(json.dumps(record))
     plan, _ = jam.command_plan(args('eval', '--run-dir', str(run), '--benchmark', 'libero'))
-    assert plan['recipe'] == 'ovis-jam' and 'environment' not in plan
+    assert plan['recipe'] == 'libero-ovis-jam' and 'environment' not in plan
     assert str(run / 'checkpoints/weights/step_10.pt') in plan['commands'][0]
 
 
 def test_run_rejects_wrong_model_stats_and_checkpoint(tmp_path):
     run = make_run(tmp_path)
-    for tail in [('wan-jam',), ('--stats', '/wrong/stats.json'), ('--checkpoint', '/wrong/step_10.pt')]:
+    for tail in [('libero-wan-jam',), ('--stats', '/wrong/stats.json'), ('--checkpoint', '/wrong/step_10.pt')]:
         with pytest.raises(ValueError):
             jam.command_plan(args('eval', '--run-dir', str(run), *tail))
     (run / 'dataset_stats.json').write_text('{"different":true}')
@@ -157,13 +157,37 @@ def test_run_rejects_wrong_model_stats_and_checkpoint(tmp_path):
 def test_recipe_drift_and_existing_run_are_rejected(tmp_path):
     run = make_run(tmp_path)
     changed = copy.deepcopy(jam.recipes())
-    changed['ovis-jam']['overrides'].append('model.foresight.offsets=[0]')
+    changed['libero-ovis-jam']['overrides'].append('model.foresight.offsets=[0]')
     with pytest.raises(ValueError, match='recipe changed'):
         load_run(run, changed)
-    parsed = args('train', 'ovis-jam', '--output', str(run))
+    parsed = args('train', 'libero-ovis-jam', '--output', str(run))
     plan, _ = jam.command_plan(parsed)
     with pytest.raises(ValueError, match='already contains'):
-        begin_training(parsed, plan, jam.recipes()['ovis-jam'], jam.paths(parsed), ROOT)
+        begin_training(parsed, plan, jam.recipes()['libero-ovis-jam'], jam.paths(parsed), ROOT)
+
+
+@pytest.mark.parametrize('old,new', [
+    ('wan-jam', 'libero-wan-jam'), ('ovis-jam', 'libero-ovis-jam'),
+    ('qwen-jam', 'libero-qwen-jam'), ('dino-b-jam', 'libero-dino-b-jam'),
+    ('dino-l-jam', 'libero-dino-l-jam'), ('flux-jam-libero', 'libero-flux-jam'),
+])
+def test_old_recipe_run_evaluates_with_either_id_and_still_rejects_drift(old, new, tmp_path):
+    run = make_run(tmp_path, recipe=new)
+    path = run / 'run.json'
+    record = json.loads(path.read_text())
+    record['recipe'] = old
+    path.write_text(json.dumps(record))
+    original = path.read_bytes()
+    for name in (old, new):
+        plan, _ = jam.command_plan(args('eval', name, '--run-dir', str(run)))
+        assert plan['recipe'] == new
+        assert str(run / 'checkpoints/weights/step_10.pt') in plan['commands'][0]
+        assert path.read_bytes() == original
+    assert load_run(run, jam.recipes())['recipe'] == new
+    record['recipe_spec']['seed'] += 1
+    path.write_text(json.dumps(record))
+    with pytest.raises(ValueError, match='recipe changed'):
+        load_run(run, jam.recipes())
 
 
 def test_virtualenv_symlink_is_not_resolved(tmp_path):
@@ -175,7 +199,7 @@ def test_virtualenv_symlink_is_not_resolved(tmp_path):
 
 
 def test_training_failure_is_logged_and_stops_pipeline(tmp_path, monkeypatch):
-    parsed = args('train', 'wan-jam', '--output', str(tmp_path / 'failed'))
+    parsed = args('train', 'libero-wan-jam', '--output', str(tmp_path / 'failed'))
     plan, env = jam.command_plan(parsed)
     plan['commands'] = [[sys.executable, '-c', 'print("training failed"); raise SystemExit(7)']]
     with pytest.raises(subprocess.CalledProcessError) as caught:
@@ -187,7 +211,7 @@ def test_training_failure_is_logged_and_stops_pipeline(tmp_path, monkeypatch):
 
 @pytest.mark.parametrize('outcome', ['success', 'train_failed', 'checkpoint_missing', 'simulator_missing'])
 def test_pipeline_execution_order_and_failure_boundaries(tmp_path, monkeypatch, outcome):
-    parsed = args('train-eval', 'wan-jam', '--output', str(tmp_path / 'run'))
+    parsed = args('train-eval', 'libero-wan-jam', '--output', str(tmp_path / 'run'))
     plan, env = jam.command_plan(parsed)
     checkpoint = Path(plan['expected_checkpoint'])
     marker = tmp_path / 'evaluation_ran'
@@ -213,7 +237,7 @@ def test_pipeline_execution_order_and_failure_boundaries(tmp_path, monkeypatch, 
     saved_recipes = json.loads((ROOT / 'reproduction/recipes.json').read_text())['recipes']
     monkeypatch.setattr(jam, 'recipes', lambda: saved_recipes)
     monkeypatch.setattr(jam, 'command_plan', lambda _: (plan, env))
-    monkeypatch.setattr(sys, 'argv', ['jam.py', 'train-eval', 'wan-jam', '--output', str(tmp_path / 'run')])
+    monkeypatch.setattr(sys, 'argv', ['jam.py', 'train-eval', 'libero-wan-jam', '--output', str(tmp_path / 'run')])
     if outcome == 'success':
         jam.main()
     else:
@@ -224,7 +248,7 @@ def test_pipeline_execution_order_and_failure_boundaries(tmp_path, monkeypatch, 
         assert not (tmp_path / 'run').exists()
 
 
-def evaluation_args(tmp_path, recipe='wan-jam', benchmark='libero'):
+def evaluation_args(tmp_path, recipe='libero-wan-jam', benchmark='libero'):
     return argparse.Namespace(recipe=recipe, benchmark=benchmark,
         checkpoint=str(tmp_path / 'weights.pt'), stats=str(tmp_path / 'stats.json'),
         gpus='2,5', output=str(tmp_path / 'eval'), data_root=None,
@@ -235,6 +259,7 @@ def evaluation_args(tmp_path, recipe='wan-jam', benchmark='libero'):
 @pytest.mark.parametrize('benchmark', ['libero', 'plus'])
 def test_evaluators_have_identical_task_coverage_with_backend_specific_inference(recipe, benchmark, tmp_path):
     plan = evaluate_libero.build_plan(evaluation_args(tmp_path, recipe, benchmark))
+    backbone = recipe.removeprefix('libero-')
     tasks = [task for item in plan['workers'] for task in item['tasks']]
     assert len(tasks) == len(set(tasks)) == (40 if benchmark == 'libero' else 1506)
     assert set(tasks) == set(task_list(benchmark))
@@ -242,11 +267,11 @@ def test_evaluators_have_identical_task_coverage_with_backend_specific_inference
         command = worker['command']
         assert '++EVALUATION.canonical_result_names=true' in command
         assert '++EVALUATION.num_trials=' + str(trials_per_task(benchmark)) in command
-        replan = 10 if recipe.startswith(('wan', 'qwen')) or (recipe.startswith('dino') and benchmark == 'plus') else 8
+        replan = 10 if backbone.startswith(('wan', 'qwen')) or (backbone.startswith('dino') and benchmark == 'plus') else 8
         assert f'++EVALUATION.replan_steps={replan}' in command
-        assert ('++model.skip_dit_load_from_pretrain=false' in command) == recipe.startswith('qwen')
-        assert ('++model.tensor_native_preprocessing=false' in command) == recipe.startswith('qwen')
-        assert any(x.startswith('++model.qwen3_model_spec=') for x in command) == recipe.startswith('flux')
+        assert ('++model.skip_dit_load_from_pretrain=false' in command) == backbone.startswith('qwen')
+        assert ('++model.tensor_native_preprocessing=false' in command) == backbone.startswith('qwen')
+        assert any(x.startswith('++model.qwen3_model_spec=') for x in command) == backbone.startswith('flux')
         assert '++model.action_dit_pretrained_path=null' in command
 
 
@@ -446,6 +471,38 @@ def test_resume_keeps_valid_results_and_refuses_another_evaluation(tmp_path, mon
         evaluate_libero.execute(parsed, other)
 
 
+def test_legacy_evaluation_recipe_can_resume_with_the_canonical_id(tmp_path, monkeypatch):
+    parsed, plan = prepared_evaluation(tmp_path, monkeypatch)
+    output = Path(parsed.output)
+    output.mkdir()
+    recorded = copy.deepcopy(plan)
+    recorded['recipe'] = 'wan-jam'
+    (output / 'evaluation_plan.json').write_text(json.dumps(recorded))
+    for task in task_list('libero')[:30]:
+        write_result(output, task)
+    parsed.recipe = 'libero-wan-jam'
+    parsed.resume = True
+    calls, _ = fake_workers(monkeypatch, lambda call, tasks: (tasks, 0, False))
+    assert evaluate_libero.execute(parsed, plan) == 0
+    assert sorted(sum(calls, [])) == sorted(task_list('libero')[30:])
+    assert json.loads((output / 'evaluation_plan.json').read_text())['recipe'] == 'libero-wan-jam'
+    changed = copy.deepcopy(plan)
+    changed['command'].append('++model.foresight.offsets=[0]')
+    with pytest.raises(ValueError, match='different evaluation'):
+        evaluate_libero.execute(parsed, changed)
+
+
+@pytest.mark.parametrize('old,new', [
+    ('wan-jam', 'libero-wan-jam'), ('ovis-jam', 'libero-ovis-jam'),
+    ('qwen-jam', 'libero-qwen-jam'), ('dino-b-jam', 'libero-dino-b-jam'),
+    ('dino-l-jam', 'libero-dino-l-jam'), ('flux-jam-libero', 'libero-flux-jam'),
+])
+def test_direct_evaluator_aliases_keep_resolved_commands(old, new, tmp_path):
+    legacy = evaluate_libero.build_plan(evaluation_args(tmp_path, old))
+    canonical = evaluate_libero.build_plan(evaluation_args(tmp_path, new))
+    assert legacy == canonical and legacy['recipe'] == new
+
+
 def test_conflicting_duplicate_results_are_both_rerun(tmp_path, monkeypatch):
     parsed, plan = prepared_evaluation(tmp_path, monkeypatch)
     parsed.resume = True
@@ -558,7 +615,7 @@ def test_interrupt_cancels_workers_before_waiting_for_threads(tmp_path):
         f'import argparse,sys\nsys.path.insert(0,{str(ROOT / "tools")!r})\n'
         'from pathlib import Path\nimport evaluate_libero as e\n'
         f'root=Path({str(tmp_path)!r})\n'
-        'a=argparse.Namespace(recipe="wan-jam",benchmark="libero",checkpoint=str(root/"weights.pt"),'
+        'a=argparse.Namespace(recipe="libero-wan-jam",benchmark="libero",checkpoint=str(root/"weights.pt"),'
         'stats=str(root/"stats.json"),gpus="0",output=str(root/"eval"),'
         'data_root=None,model_root=None,cache_root=None,override=[],resume=False)\n'
         'plan=e.build_plan(a)\n'

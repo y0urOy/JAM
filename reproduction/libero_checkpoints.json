@@ -18,10 +18,10 @@
         "step": 20000,
         "format": "original PyTorch weights-only checkpoint"
       },
-      "recipe": "wan-jam",
+      "recipe": "libero-wan-jam",
       "dataset_stats_sha256": "8d8a38601513ae3421d9181ddfc72f7bc26e402b5447fef9a8b2e76fbd8b9e39",
       "inference": {
-        "recipe": "wan-jam",
+        "recipe": "libero-wan-jam",
         "backend": "wan",
         "precision": "bf16",
         "action_dim": 7,
@@ -65,10 +65,10 @@
         "step": 21700,
         "format": "original PyTorch weights-only checkpoint"
       },
-      "recipe": "ovis-jam",
+      "recipe": "libero-ovis-jam",
       "dataset_stats_sha256": "4d3114239c01c04458262ac927adf4d220543619e82c5c422f2ba08157e3c32e",
       "inference": {
-        "recipe": "ovis-jam",
+        "recipe": "libero-ovis-jam",
         "backend": "multimodal",
         "precision": "bf16",
         "action_dim": 7,
@@ -112,10 +112,10 @@
         "step": 21700,
         "format": "original PyTorch weights-only checkpoint"
       },
-      "recipe": "qwen-jam",
+      "recipe": "libero-qwen-jam",
       "dataset_stats_sha256": "30f81ad7d5076e97323e3328bce003e01a04cb21327b5bacd21bb72846768638",
       "inference": {
-        "recipe": "qwen-jam",
+        "recipe": "libero-qwen-jam",
         "backend": "multimodal",
         "precision": "bf16",
         "action_dim": 7,

@@ -7,11 +7,11 @@ with `--dry-run` uses only the standard library and does not create any files.
 
 | Policy | LIBERO recipe | RoboTwin 2.0 recipe |
 |---|---|---|
-| JAM (Wan) | `wan-jam` | `robotwin-wan-jam` |
-| JAM (Ovis-U1) | `ovis-jam` | `robotwin-ovis-jam` |
-| JAM (FLUX.2) | `flux-jam-libero` | `robotwin-flux-jam` |
-| JAM (Qwen3.5-2B) | `qwen-jam` | `robotwin-qwen-jam` |
-| JAM (DINOv2-B / L) | `dino-b-jam` / `dino-l-jam` | |
+| JAM (Wan) | `libero-wan-jam` | `robotwin-wan-jam` |
+| JAM (Ovis-U1) | `libero-ovis-jam` | `robotwin-ovis-jam` |
+| JAM (FLUX.2) | `libero-flux-jam` | `robotwin-flux-jam` |
+| JAM (Qwen3.5-2B) | `libero-qwen-jam` | `robotwin-qwen-jam` |
+| JAM (DINOv2-B / L) | `libero-dino-b-jam` / `libero-dino-l-jam` | |
 
 All ten recipes run in the environment that `tools/bootstrap.py` installs. Use
 `--venv .venv` to choose it without activating it; `--python /path/to/python` also
@@ -23,12 +23,12 @@ instruction cache that the recipe needs; see [DATA_AND_MODELS.md](DATA_AND_MODEL
 ## Train and evaluate
 
 ```bash
-python tools/jam.py train-eval wan-jam --venv .venv \
+python tools/jam.py train-eval libero-wan-jam --venv .venv \
   --gpus-per-node 8 --gpus 0,1 --benchmarks libero plus \
-  --output artifacts/runs/wan-jam
-python tools/jam.py train-eval ovis-jam --venv .venv \
+  --output artifacts/runs/libero-wan-jam
+python tools/jam.py train-eval libero-ovis-jam --venv .venv \
   --gpus-per-node 8 --gpus 0,1 --benchmarks libero plus \
-  --output artifacts/runs/ovis-jam
+  --output artifacts/runs/libero-ovis-jam
 python tools/jam.py train-eval robotwin-ovis-jam --venv .venv \
   --gpus-per-node 8 --gpus 0,1 --output artifacts/runs/robotwin-ovis-jam
 ```
@@ -52,12 +52,12 @@ supply `--venv` in these examples:
 
 ```bash
 # LIBERO
-python tools/jam.py train wan-jam --gpus-per-node 8
-python tools/jam.py train ovis-jam --gpus-per-node 8
-python tools/jam.py train flux-jam-libero --gpus-per-node 8
-python tools/jam.py train qwen-jam --gpus-per-node 8
-python tools/jam.py train dino-b-jam --gpus-per-node 8
-python tools/jam.py train dino-l-jam --gpus-per-node 8
+python tools/jam.py train libero-wan-jam --gpus-per-node 8
+python tools/jam.py train libero-ovis-jam --gpus-per-node 8
+python tools/jam.py train libero-flux-jam --gpus-per-node 8
+python tools/jam.py train libero-qwen-jam --gpus-per-node 8
+python tools/jam.py train libero-dino-b-jam --gpus-per-node 8
+python tools/jam.py train libero-dino-l-jam --gpus-per-node 8
 # RoboTwin 2.0
 python tools/jam.py train robotwin-wan-jam --gpus-per-node 8 --micro-batch 32
 python tools/jam.py train robotwin-ovis-jam --gpus-per-node 8
@@ -79,7 +79,7 @@ the unified launcher does not infer resumption from an existing directory.
 ## Run artifacts
 
 ```text
-artifacts/runs/ovis-jam/
+artifacts/runs/libero-ovis-jam/
   run.json                    # recipe snapshot, overrides, source version, paths, status
   train_node0.log             # one log per training node
   config.yaml                 # resolved backend configuration

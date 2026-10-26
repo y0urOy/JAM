@@ -12,8 +12,8 @@ from omegaconf import OmegaConf
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'tools'))
 from compose import compose_recipe
-from jam import environment, parser, recipes
-from naming import canonical_reference, canonical_recipe_spec, migration
+from jam import command_plan, environment, parser, recipes
+from naming import canonical_recipe, canonical_reference, canonical_recipe_spec, migration
 from workflow import load_run
 
 FINGERPRINTS = json.loads((ROOT / 'reproduction/config_fingerprints.json').read_text())
@@ -39,8 +39,8 @@ def test_resolved_recipe_matches_recorded_fingerprint(name):
 
 
 @pytest.mark.parametrize('name,old_backend,old_task', [
-    ('wan-jam', 'fastwam', 'libero_bplus_na_downpred118_lam06_s18_vae_off12_2cam224_1e-4'),
-    ('ovis-jam', 'imagewam', 'libero_ovis_u1_imagewam_foresight'),
+    ('libero-wan-jam', 'fastwam', 'libero_bplus_na_downpred118_lam06_s18_vae_off12_2cam224_1e-4'),
+    ('libero-ovis-jam', 'imagewam', 'libero_ovis_u1_imagewam_foresight'),
 ])
 def test_old_run_recipe_accepts_names_only_and_rejects_experiment_drift(name, old_backend, old_task, tmp_path):
     spec = dict(recipes()[name], backend=old_backend, task=old_task)
@@ -71,6 +71,33 @@ def test_old_backend_flags_and_environment_keep_explicit_jam_precedence(monkeypa
     assert environment('imagewam', 'libero', {'models': Path('/models')})['JAM_VIDEO_BACKEND'] == 'legacy-reader'
     monkeypatch.setenv('JAM_VIDEO_BACKEND', 'pyav')
     assert environment('multimodal', 'libero', {'models': Path('/models')})['JAM_VIDEO_BACKEND'] == 'pyav'
+
+
+@pytest.mark.parametrize('old,new', list(migration()['recipe_aliases'].items()))
+def test_legacy_recipe_cli_and_direct_compose_keep_the_same_scientific_plan(old, new, tmp_path):
+    import copy
+    for mode in ('train', 'train-eval', 'compose'):
+        options = ['--output', str(tmp_path / 'one run')]
+        canonical = parser().parse_args([mode, new, *options])
+        legacy = parser().parse_args([mode, old, *options])
+        assert legacy.recipe == new
+        assert command_plan(legacy)[0] == command_plan(canonical)[0]
+        # Library callers can construct Namespace objects without using the parser.
+        raw = copy.deepcopy(canonical)
+        raw.recipe = old
+        assert command_plan(raw)[0] == command_plan(canonical)[0]
+    old_config = normalize_config(OmegaConf.to_container(compose_recipe(old), resolve=True))
+    new_config = normalize_config(OmegaConf.to_container(compose_recipe(new), resolve=True))
+    assert old_config == new_config
+    assert canonical_recipe(old) == new and old not in recipes()
+
+
+def test_public_recipe_list_excludes_legacy_aliases():
+    import subprocess
+    output = subprocess.check_output([sys.executable, str(ROOT / 'tools/jam.py'), 'list'], text=True)
+    listed = [line.split()[0] for line in output.splitlines()]
+    assert listed == list(recipes()) and len(listed) == 10
+    assert set(listed).isdisjoint(migration()['recipe_aliases'])
 
 
 def test_legacy_checkpoint_formats_remain_distinct_and_exported():

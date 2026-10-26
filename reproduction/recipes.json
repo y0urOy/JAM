@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "recipes": {
-    "wan-jam": {
+    "libero-wan-jam": {
       "backend": "wan",
       "task": "libero_bplus_na_downpred118_lam06_s18_vae_off12_2cam224_1e-4",
       "family": "wan",
@@ -14,7 +14,7 @@
       "overrides": [],
       "protocol_source": "Original training runs; see docs/TRAINING.md"
     },
-    "ovis-jam": {
+    "libero-ovis-jam": {
       "backend": "multimodal",
       "task": "libero_ovis_u1_jam_foresight",
       "family": "ovis",
@@ -30,7 +30,7 @@
       ],
       "protocol_source": "Original training runs; see docs/TRAINING.md"
     },
-    "qwen-jam": {
+    "libero-qwen-jam": {
       "backend": "multimodal",
       "task": "libero_qwen35_native_action_foresight_2cam224_1e-4",
       "family": "qwen",
@@ -43,7 +43,7 @@
       "overrides": [],
       "protocol_source": "Original training runs; see docs/TRAINING.md"
     },
-    "dino-b-jam": {
+    "libero-dino-b-jam": {
       "backend": "multimodal",
       "task": "libero_dinov2_qwen3_native_action_foresight",
       "family": "dino",
@@ -57,7 +57,7 @@
       "protocol_source": "Original training runs; see docs/TRAINING.md",
       "dino_size": "base"
     },
-    "dino-l-jam": {
+    "libero-dino-l-jam": {
       "backend": "multimodal",
       "task": "libero_dinov2_large_qwen3_native_action_foresight",
       "family": "dino",
@@ -71,7 +71,7 @@
       "protocol_source": "Original training runs; see docs/TRAINING.md",
       "dino_size": "large"
     },
-    "flux-jam-libero": {
+    "libero-flux-jam": {
       "backend": "multimodal",
       "task": "libero_flux2_klein_4b_base_jam_foresight",
       "family": "flux",

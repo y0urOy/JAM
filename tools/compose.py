@@ -9,12 +9,12 @@ from pathlib import Path
 import sys
 
 from jam import ROOT, recipes, paths, base_overrides
-from naming import backend_package
+from naming import backend_package, canonical_recipe
 
 def compose_recipe(name, data_root=None, model_root=None, cache_root=None, overrides=()):
     from hydra import compose, initialize_config_dir
     from omegaconf import OmegaConf
-    r=recipes()[name]
+    r=recipes()[canonical_recipe(name)]
     args=argparse.Namespace(data_root=data_root,model_root=model_root,cache_root=cache_root)
     p=paths(args)
     repo=ROOT/'backends'/r['backend']

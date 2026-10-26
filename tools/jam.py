@@ -11,7 +11,7 @@ import shlex
 import subprocess
 import sys
 
-from naming import backend_package, canonical_backend, adopt_legacy_environment
+from naming import backend_package, canonical_backend, canonical_recipe, adopt_legacy_environment
 from workflow import (MANAGED_EVAL_KEYS, absolute, begin_training, finish_training, gpu_ids,
                       override_key, python_executable, reject_overrides,
                       resolve_evaluation, run_command)
@@ -137,6 +137,7 @@ def base_overrides(r, p, training=True):
 
 def command_plan(args):
     args = copy.deepcopy(args)
+    args.recipe = canonical_recipe(args.recipe)
     all_recipes = recipes()
     args.python = python_executable(args.python, args.venv)
     if args.command == 'eval':
@@ -256,6 +257,8 @@ def command_plan(args):
 
 def pipeline_plan(args):
     """Plan training and matched evaluations without touching model assets."""
+    args = copy.deepcopy(args)
+    args.recipe = canonical_recipe(args.recipe)
     recipe = recipes()[args.recipe]
     train_args = copy.deepcopy(args)
     train_args.command = 'train'
@@ -291,7 +294,7 @@ def pipeline_plan(args):
 
 
 def execute_training(args, plan, env):
-    record = begin_training(args, plan, recipes()[args.recipe], paths(args), ROOT)
+    record = begin_training(args, plan, recipes()[canonical_recipe(args.recipe)], paths(args), ROOT)
     returncode = 1
     try:
         for command in plan['commands']:
@@ -348,7 +351,7 @@ def parser():
     summary.add_argument('--output', required=True, help='Evaluation directory containing per-task results.')
     for mode in ('train','train-eval','cache','text-cache','eval','compose'):
         p = sub.add_parser(mode)
-        p.add_argument('recipe', nargs='?' if mode == 'eval' else None)
+        p.add_argument('recipe', nargs='?' if mode == 'eval' else None, type=canonical_recipe)
         runtime = p.add_mutually_exclusive_group()
         runtime.add_argument('--python', help='Python executable in the policy environment.')
         runtime.add_argument('--venv', help='Policy virtualenv/conda environment directory.')

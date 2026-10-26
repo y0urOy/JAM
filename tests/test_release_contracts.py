@@ -14,7 +14,7 @@ from compose import compose_recipe
 import evaluate_libero
 from evaluate_libero import task_list
 
-LIBERO_RECIPES=['wan-jam','ovis-jam','qwen-jam','dino-b-jam','dino-l-jam','flux-jam-libero']
+LIBERO_RECIPES=['libero-wan-jam','libero-ovis-jam','libero-qwen-jam','libero-dino-b-jam','libero-dino-l-jam','libero-flux-jam']
 ROBOTWIN_RECIPES=['robotwin-wan-jam','robotwin-ovis-jam','robotwin-flux-jam','robotwin-qwen-jam']
 
 def test_release_names_exactly_the_jam_recipes():
@@ -144,11 +144,11 @@ def test_one_environment_pins_every_requirement():
     assert commands[-1][1:]==['-m','pip','check']
 
 def test_reject_batch_that_changes_recipe():
-    a=parser().parse_args(['train','wan-jam','--gpus-per-node','3'])
+    a=parser().parse_args(['train','libero-wan-jam','--gpus-per-node','3'])
     with pytest.raises(ValueError,match='global batch'):command_plan(a)
 
 def test_reject_cross_robot_evaluation():
-    a=parser().parse_args(['eval','wan-jam','--benchmark','robotwin','--checkpoint','x.pt','--stats','s.json'])
+    a=parser().parse_args(['eval','libero-wan-jam','--benchmark','robotwin','--checkpoint','x.pt','--stats','s.json'])
     with pytest.raises(ValueError,match='matching training recipe'):command_plan(a)
     a=parser().parse_args(['eval','robotwin-qwen-jam','--benchmark','plus','--checkpoint','x.pt','--stats','s.json'])
     with pytest.raises(ValueError,match='matching training recipe'):command_plan(a)

@@ -6,9 +6,9 @@ Both backends use the same interface. New runs created by `tools/jam.py train`
 remember their recipe and training overrides:
 
 ```bash
-python tools/jam.py eval --run-dir artifacts/runs/wan-jam \
+python tools/jam.py eval --run-dir artifacts/runs/libero-wan-jam \
   --venv .venv --benchmark libero --gpus 0,1
-python tools/jam.py eval --run-dir artifacts/runs/ovis-jam \
+python tools/jam.py eval --run-dir artifacts/runs/libero-ovis-jam \
   --venv .venv --benchmark plus --gpus 0,1
 python tools/jam.py eval --run-dir artifacts/runs/robotwin-qwen-jam \
   --venv .venv --benchmark robotwin --gpus 0,1
@@ -20,9 +20,9 @@ For old runs without `run.json`, supply the recipe, checkpoint and statistics
 explicitly, plus any original model/preprocessing overrides:
 
 ```bash
-python tools/jam.py eval qwen-jam --benchmark libero \
+python tools/jam.py eval libero-qwen-jam --benchmark libero \
   --checkpoint /path/to/step_021700.pt --stats /path/to/dataset_stats.json --gpus 0,1
-python tools/jam.py eval qwen-jam --benchmark plus \
+python tools/jam.py eval libero-qwen-jam --benchmark plus \
   --checkpoint /path/to/step_021700.pt --stats /path/to/dataset_stats.json --gpus 0,1
 ```
 
@@ -34,7 +34,7 @@ LIBERO-Plus below).
 
 ## LIBERO and LIBERO-Plus
 
-The six LIBERO recipes (`wan-jam`, `ovis-jam`, `flux-jam-libero`, `qwen-jam`, `dino-b-jam`, `dino-l-jam`) are evaluated on both benchmarks.
+The six LIBERO recipes (`libero-wan-jam`, `libero-ovis-jam`, `libero-flux-jam`, `libero-qwen-jam`, `libero-dino-b-jam`, `libero-dino-l-jam`) are evaluated on both benchmarks.
 
 LIBERO uses 40 tasks, 50 rollouts each, four suites. Report `Spatial | Object | Goal | Long | AVG`. LIBERO-Plus uses the fixed manifest of 1,506 perturbed tasks, seed 42, one trial per task, with a task-weighted micro average. Its manifest includes zero-based IDs; the original upstream classification uses one-based IDs. Do not compute an unweighted mean of perturbation-category rates.
 
@@ -42,7 +42,7 @@ The paper's LIBERO-Plus table splits the same results into seven perturbation ca
 
 ```bash
 python backends/wan/experiments/libero/summarize_libero_plus_results.py \
-  --output-dir artifacts/evaluations/ovis-jam/plus/step_021700 --protocol jam_multimodal-paper15 \
+  --output-dir artifacts/evaluations/libero-ovis-jam/plus/step_021700 --protocol jam_multimodal-paper15 \
   --classification-file third_party/LIBERO-plus/libero/libero/benchmark/task_classification.json
 ```
 
@@ -56,7 +56,7 @@ every 10 on LIBERO-Plus, as in the recorded evaluations. For the released
 checkpoints, each folder's `release.py` applies the recorded settings listed in `reproduction/libero_checkpoints.json`.
 
 The DINOv2 text cache built for training holds the 40 LIBERO instructions. Before a
-LIBERO-Plus evaluation of `dino-b-jam` or `dino-l-jam`, add the 1,502 distinct
+LIBERO-Plus evaluation of `libero-dino-b-jam` or `libero-dino-l-jam`, add the 1,502 distinct
 instructions of the fixed task list to the same cache, on a CUDA GPU:
 
 ```bash
@@ -94,7 +94,7 @@ Recheck an existing result directory without running any model:
 
 ```bash
 python tools/jam.py summarize --benchmark libero \
-  --output artifacts/runs/ovis-jam/evaluations/libero/step_021700
+  --output artifacts/runs/libero-ovis-jam/evaluations/libero/step_021700
 ```
 
 ## RoboTwin 2.0

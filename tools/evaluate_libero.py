@@ -14,6 +14,7 @@ from threading import Event, Lock
 import time
 
 from jam import ROOT, recipes, paths, base_overrides, environment, assignment, libero_config_dir
+from naming import canonical_recipe
 from summarize_results import task_list, trials_per_task, read_results, summarize, save_summary
 from workflow import MANAGED_EVAL_KEYS, absolute, gpu_ids, override_key, reject_overrides, write_json
 
@@ -31,12 +32,13 @@ def resume_identity(plan):
     # when rescheduling the same evaluation; output and task shards are operational.
     operational = {'gpu_id', 'EVALUATION.output_dir', 'EVALUATION.task_file', 'EVALUATION.task_chunk_file'}
     command = [part for part in plan.get('command', [])[1:] if override_key(part) not in operational]
-    return {**{key: plan.get(key) for key in RESUME_KEYS},
+    return {**{key: canonical_recipe(plan.get(key)) if key == 'recipe' else plan.get(key) for key in RESUME_KEYS},
             'backend': plan.get('backend'), 'resolved_command': command}
 
 
 def build_plan(args):
-    recipe = recipes()[args.recipe]
+    name = canonical_recipe(args.recipe)
+    recipe = recipes()[name]
     p = paths(args)
     if recipe['benchmark'] != 'libero':
         raise ValueError('A LIBERO training recipe is required.')
@@ -75,7 +77,7 @@ def build_plan(args):
                       assignment('EVALUATION.exact_output_dir', True),
                       assignment('EVALUATION.atomic_result_writes', True)]
     plan = {
-        'recipe': args.recipe, 'benchmark': args.benchmark, 'backend': recipe['backend'],
+        'recipe': name, 'benchmark': args.benchmark, 'backend': recipe['backend'],
         'checkpoint': str(absolute(args.checkpoint)), 'stats': str(absolute(args.stats)),
         'task_count': len(tasks), 'trials_per_task': trials_per_task(args.benchmark),
         'scalar_policy_inference': True, 'overrides': args.override,
@@ -221,11 +223,11 @@ def execute(args, plan):
     workers_ok = summary['complete']
     if not workers_ok:
         summary['errors'].append(f'Tasks without a valid result after {len(attempts)} attempts; inspect the worker logs.')
-    summary['recipe'] = args.recipe
+    summary['recipe'] = plan['recipe']
     summary['checkpoint'] = plan['checkpoint']
     summary['overrides'] = args.override
     save_summary(output, summary, episodes)
-    report = {'recipe': args.recipe, 'benchmark': args.benchmark,
+    report = {'recipe': plan['recipe'], 'benchmark': args.benchmark,
               'task_count': plan['task_count'], 'workers_completed_without_error': workers_ok,
               'results_complete': summary['complete'], 'attempts': len(attempts), 'workers': results,
               'success_rate_percent': summary['success_rate_percent'], 'summary': 'summary.json'}
@@ -236,7 +238,7 @@ def execute(args, plan):
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument('--recipe', required=True)
+    ap.add_argument('--recipe', required=True, type=canonical_recipe)
     ap.add_argument('--benchmark', choices=['libero', 'plus'], required=True)
     ap.add_argument('--checkpoint', required=True)
     ap.add_argument('--stats', required=True)

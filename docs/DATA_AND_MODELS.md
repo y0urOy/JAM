@@ -4,11 +4,11 @@ Download references and revisions are in [assets.json](../reproduction/assets.js
 
 | Recipes | Assets |
 |---|---|
-| `wan-jam`, `robotwin-wan-jam` | `wan`, `wan-tokenizer` |
-| `ovis-jam`, `robotwin-ovis-jam` | `ovis` |
-| `flux-jam-libero`, `robotwin-flux-jam` | `flux`, `flux-ae`, `qwen3` |
-| `qwen-jam`, `robotwin-qwen-jam` | `qwen-2b` |
-| `dino-b-jam` / `dino-l-jam` | `dino-b` / `dino-l`, `qwen3`, `ovis` |
+| `libero-wan-jam`, `robotwin-wan-jam` | `wan`, `wan-tokenizer` |
+| `libero-ovis-jam`, `robotwin-ovis-jam` | `ovis` |
+| `libero-flux-jam`, `robotwin-flux-jam` | `flux`, `flux-ae`, `qwen3` |
+| `libero-qwen-jam`, `robotwin-qwen-jam` | `qwen-2b` |
+| `libero-dino-b-jam` / `libero-dino-l-jam` | `dino-b` / `dino-l`, `qwen3`, `ovis` |
 | LIBERO / RoboTwin 2.0 data | `libero-data` / `robotwin-data` |
 | LIBERO-Plus / RoboTwin 2.0 simulator assets | `libero-plus-assets` / `robotwin-assets` (see [INSTALL.md](INSTALL.md)) |
 
@@ -65,10 +65,10 @@ Run these commands in the environment that `tools/bootstrap.py` installs:
 
 ```bash
 python tools/init_actions.py wan --dry-run
-python tools/init_actions.py wan                    # wan-jam, robotwin-wan-jam
-python tools/init_actions.py ovis --action-dim 7    # ovis-jam
+python tools/init_actions.py wan                    # libero-wan-jam, robotwin-wan-jam
+python tools/init_actions.py ovis --action-dim 7    # libero-ovis-jam
 python tools/init_actions.py ovis --action-dim 14   # robotwin-ovis-jam
-python tools/init_actions.py flux --action-dim 7    # flux-jam-libero
+python tools/init_actions.py flux --action-dim 7    # libero-flux-jam
 python tools/init_actions.py flux --action-dim 14   # robotwin-flux-jam
 ```
 
@@ -88,20 +88,20 @@ DINOv2 and native Qwen3.5 action experts initialize compatible blocks directly f
 Wan uses a UMT5 instruction cache; FLUX.2 and DINOv2 use a Qwen3-4B instruction cache:
 
 ```bash
-python tools/jam.py text-cache wan-jam
+python tools/jam.py text-cache libero-wan-jam
 python tools/jam.py text-cache robotwin-wan-jam
-python tools/jam.py text-cache flux-jam-libero
+python tools/jam.py text-cache libero-flux-jam
 python tools/jam.py text-cache robotwin-flux-jam
-python tools/jam.py text-cache dino-b-jam
-python tools/jam.py text-cache dino-l-jam
-python tools/jam.py cache wan-jam
+python tools/jam.py text-cache libero-dino-b-jam
+python tools/jam.py text-cache libero-dino-l-jam
+python tools/jam.py cache libero-wan-jam
 ```
 
 The Qwen3-4B caches hold 512 tokens (`qwen3_4b_len512`) for the LIBERO FLUX.2 and DINOv2 recipes and 128 tokens (`robotwin/qwen3_4b_len128`) for `robotwin-flux-jam`, as in the `config.yaml` shipped with the released ImageWAM FLUX.2 RoboTwin checkpoint (the upstream repository task config uses 512); FLUX.2 evaluation encodes instructions online at 512 tokens. Ovis-U1 and Qwen3.5 have no separate UMT5/Qwen3 instruction-cache step. The LIBERO-Plus evaluation of the DINOv2 recipes needs extra cache entries; see [EVALUATION.md](EVALUATION.md). Wan target extraction (`cache`) is optional and resumable, and follows the same sample indices and target computation as training. To train with the extracted targets:
 
 ```bash
-python tools/jam.py train wan-jam \
-  --override 'model.foresight.target_cache_roots=[/path/to/cache/wan-jam/targets]'
+python tools/jam.py train libero-wan-jam \
+  --override 'model.foresight.target_cache_roots=[/path/to/cache/libero-wan-jam/targets]'
 ```
 
 Without a target cache, every family computes its frozen foresight targets online during training.

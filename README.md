@@ -21,9 +21,12 @@
   Future observations supervise training. No image or video generation is needed.
 </p>
 
-**Just Action Models (JAM)** pair a pretrained visual backbone with an action expert and learn from recorded future
-observations through foresight supervision. JAM improves matched FastWAM and ImageWAM baselines on LIBERO and
-LIBERO-Plus, with no visual generation during training or inference.
+The VLA–WAM debate over vision-language models versus visual generators bundles three choices: backbone
+initialization, future supervision, and inference computation. **Just Action Models (JAM)** decouple them: a
+pretrained backbone and action expert learn with action and foresight losses, predicting frozen features of recorded
+futures through a head discarded after training. JAM uses no visual generation during training or inference, improves
+matched FastWAM and ImageWAM baselines on LIBERO and LIBERO-Plus, and uses 73% fewer estimated online training FLOPs
+than FastWAM with cached targets.
 
 This repository contains the training and evaluation code for JAM on [LIBERO](https://github.com/Lifelong-Robot-Learning/LIBERO),
 [LIBERO-Plus](https://github.com/sylvestf/LIBERO-plus) and [RoboTwin 2.0](https://github.com/RoboTwin-Platform/RoboTwin),
@@ -76,11 +79,11 @@ The ten recipes share one pinned environment. Use Python 3.10:
 
 | Policy | LIBERO recipe | RoboTwin 2.0 recipe |
 |---|---|---|
-| JAM (Wan) | `wan-jam` | `robotwin-wan-jam` |
-| JAM (Ovis-U1) | `ovis-jam` | `robotwin-ovis-jam` |
-| JAM (FLUX.2) | `flux-jam-libero` | `robotwin-flux-jam` |
-| JAM (Qwen3.5-2B) | `qwen-jam` | `robotwin-qwen-jam` |
-| JAM (DINOv2-B / L) | `dino-b-jam` / `dino-l-jam` | |
+| JAM (Wan) | `libero-wan-jam` | `robotwin-wan-jam` |
+| JAM (Ovis-U1) | `libero-ovis-jam` | `robotwin-ovis-jam` |
+| JAM (FLUX.2) | `libero-flux-jam` | `robotwin-flux-jam` |
+| JAM (Qwen3.5-2B) | `libero-qwen-jam` | `robotwin-qwen-jam` |
+| JAM (DINOv2-B / L) | `libero-dino-b-jam` / `libero-dino-l-jam` | |
 
 ```bash
 python3.10 tools/bootstrap.py --venv .venv --libero
@@ -175,16 +178,16 @@ lists their SHA256 checksums and inference settings.
 
 ## Training
 
-`tools/jam.py` trains and evaluates the JAM recipes in [recipes.json](reproduction/recipes.json): `wan-jam`, `ovis-jam`,
-`qwen-jam`, `dino-b-jam`, `dino-l-jam` and `flux-jam-libero` on LIBERO, and `robotwin-wan-jam`, `robotwin-ovis-jam`,
+`tools/jam.py` trains and evaluates the JAM recipes in [recipes.json](reproduction/recipes.json): `libero-wan-jam`, `libero-ovis-jam`,
+`libero-qwen-jam`, `libero-dino-b-jam`, `libero-dino-l-jam` and `libero-flux-jam` on LIBERO, and `robotwin-wan-jam`, `robotwin-ovis-jam`,
 `robotwin-flux-jam` and `robotwin-qwen-jam` on RoboTwin 2.0.
 
 ```bash
 python tools/jam.py list
-python tools/jam.py text-cache wan-jam    # instruction cache (Wan, FLUX.2 and DINOv2 recipes)
-python tools/jam.py train-eval wan-jam --venv .venv \
+python tools/jam.py text-cache libero-wan-jam    # instruction cache (Wan, FLUX.2 and DINOv2 recipes)
+python tools/jam.py train-eval libero-wan-jam --venv .venv \
   --gpus-per-node 8 --gpus 0,1 --benchmarks libero plus \
-  --output artifacts/runs/wan-jam
+  --output artifacts/runs/libero-wan-jam
 python tools/jam.py train-eval robotwin-wan-jam --venv .venv \
   --nodes 8 --gpus-per-node 8 --node-rank 0 --master-addr HOST0 --benchmarks robotwin \
   --output artifacts/runs/robotwin-wan-jam
@@ -201,8 +204,8 @@ Wan foresight-target cache.
 A run directory remembers its recipe, overrides and normalization statistics:
 
 ```bash
-python tools/jam.py eval --run-dir artifacts/runs/wan-jam --venv .venv --benchmark libero --gpus 0,1
-python tools/jam.py eval --run-dir artifacts/runs/wan-jam --venv .venv --benchmark plus --gpus 0,1
+python tools/jam.py eval --run-dir artifacts/runs/libero-wan-jam --venv .venv --benchmark libero --gpus 0,1
+python tools/jam.py eval --run-dir artifacts/runs/libero-wan-jam --venv .venv --benchmark plus --gpus 0,1
 python tools/jam.py eval --run-dir artifacts/runs/robotwin-wan-jam --venv .venv --benchmark robotwin --gpus 0
 ```
 

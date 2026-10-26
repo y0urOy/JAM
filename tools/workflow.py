@@ -15,7 +15,7 @@ import shutil
 import subprocess
 import sys
 
-from naming import canonical_recipe_spec, canonical_reference
+from naming import canonical_recipe, canonical_recipe_spec, canonical_reference
 
 MANAGED_EVAL_KEYS = (
     'task', 'ckpt', 'gpu_id', 'output_dir', 'hydra', 'MULTIRUN',
@@ -113,8 +113,8 @@ def load_run(run_dir, all_recipes):
     if not path.is_file():
         raise ValueError(f'Missing {path}; for an older run, supply the recipe, --checkpoint and --stats explicitly.')
     record = json.loads(path.read_text())
-    name = record.get('recipe')
-    if record.get('schema_version') != 1 or name not in all_recipes:
+    name = canonical_recipe(record.get('recipe'))
+    if record.get('schema_version') != 1 or not isinstance(name, str) or name not in all_recipes:
         raise ValueError(f'Unsupported run metadata: {path}')
     if scientific_spec(canonical_recipe_spec(record.get('recipe_spec'))) != scientific_spec(all_recipes[name]):
         raise ValueError('The recipe changed since training. Use the recorded source version or explicitly evaluate the original config.')
@@ -123,11 +123,13 @@ def load_run(run_dir, all_recipes):
             raise ValueError('Unexpected run artifact in metadata.')
         if not (root / filename).is_file() or file_sha256(root / filename) != expected:
             raise ValueError(f'Training artifact changed or missing: {root / filename}')
-    return record
+    # Normalize only the returned identity; preserve the recorded metadata on disk.
+    return dict(record, recipe=name)
 
 
 def resolve_evaluation(args, all_recipes):
     """Restore one training run's recipe, overrides and normalization statistics."""
+    args.recipe = canonical_recipe(args.recipe)
     if args.run_dir:
         root = absolute(args.run_dir)
         record = load_run(root, all_recipes)
@@ -172,7 +174,7 @@ def begin_training(args, plan, recipe, path_roots, root):
     if (out / 'config.yaml').exists() or any((out / 'checkpoints/weights').glob('*.pt')):
         raise ValueError(f'{out} already contains training artifacts. Choose a new --output; use backend scripts for explicit state resumption.')
     record = {
-        'schema_version': 1, 'recipe': args.recipe, 'recipe_spec': recipe,
+        'schema_version': 1, 'recipe': canonical_recipe(args.recipe), 'recipe_spec': recipe,
         'status': 'training', 'started_at': datetime.now(timezone.utc).isoformat(),
         'source': source_version(root),
         'paths': {key: str(path_roots[name]) for key, name in (

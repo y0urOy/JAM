@@ -15,7 +15,7 @@ python3.10 tools/bootstrap.py --venv .venv --libero --dry-run
 python3.10 tools/bootstrap.py --venv .venv --libero
 source .venv/bin/activate
 python -m pip check
-python tools/jam.py compose ovis-jam
+python tools/jam.py compose libero-ovis-jam
 ```
 
 `environments/requirements.txt` lists the packages that JAM needs directly, and `environments/constraints.txt` pins every installed version, including transitive dependencies. `environments/observed.json` records the installed-package versions of the validated runtime, without local paths or credentials. System libraries, drivers and GPU architecture are separate requirements. If the selected wheel index has no wheel for the host architecture, use the matching NVIDIA/PyTorch distribution and record that change; do not silently mix CUDA/PyTorch versions.

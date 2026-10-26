@@ -14,7 +14,7 @@ The paper names the policies **JAM (Wan)**, **JAM (Ovis-U1)**, **JAM (Qwen3.5-2B
 | RoboTwin adapters | `experiments/robotwin/jam_policy` in each backend |
 | Train / evaluate | `python tools/jam.py train-eval RECIPE` |
 
-The ten recipe IDs (`wan-jam`, `ovis-jam`, `qwen-jam`, `dino-b-jam`, `dino-l-jam`, `flux-jam-libero` and the four `robotwin-*-jam`) are stable. All ten run in the one environment that `tools/bootstrap.py` installs.
+Recipe IDs follow `<benchmark>-<backbone>-jam`: `libero-wan-jam`, `libero-ovis-jam`, `libero-qwen-jam`, `libero-dino-b-jam`, `libero-dino-l-jam`, `libero-flux-jam`, and the four `robotwin-*-jam` recipes. All ten share the environment installed by `tools/bootstrap.py`. Earlier recipe names remain accepted as aliases; new commands and run records use the canonical names.
 
 ## Existing runs and checkpoints
 

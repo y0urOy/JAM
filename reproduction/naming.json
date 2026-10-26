@@ -388,5 +388,13 @@
       "backends/multimodal/configs/task/libero_idm_2cam224_1e-4.yaml",
       "backends/multimodal/configs/task/libero_joint_2cam224_1e-4.yaml"
     ]
+  },
+  "recipe_aliases": {
+    "wan-jam": "libero-wan-jam",
+    "ovis-jam": "libero-ovis-jam",
+    "qwen-jam": "libero-qwen-jam",
+    "dino-b-jam": "libero-dino-b-jam",
+    "dino-l-jam": "libero-dino-l-jam",
+    "flux-jam-libero": "libero-flux-jam"
   }
 }

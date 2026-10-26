@@ -23,8 +23,8 @@
     },
     {
       "path": "README.md",
-      "bytes": 11002,
-      "sha256": "191b2ebbd36ee299aa61278fbd0a00c29ebf191b859f7baf915a80296e0fa32c"
+      "bytes": 11413,
+      "sha256": "8b1eeff73758f3a1e2f6284b34f6f8a1773af749f5d0c9528e044a0383227695"
     },
     {
       "path": "THIRD_PARTY_NOTICES.md",
@@ -1213,28 +1213,28 @@
     },
     {
       "path": "docs/DATA_AND_MODELS.md",
-      "bytes": 5688,
-      "sha256": "1f8563ff24c0542d498c774fc363d37828f74be535816aef4856df5bef9a5f0d"
+      "bytes": 5779,
+      "sha256": "9983eadc212a8d936190c0c3f1ee73413d39ca6d67dd3b1763cc1e9cc8025ba2"
     },
     {
       "path": "docs/EVALUATION.md",
-      "bytes": 7276,
-      "sha256": "fe8b58ac3fed3906bca22bab7908c2424c7dcc8045ac3971dd2b15e53c92964c"
+      "bytes": 7367,
+      "sha256": "362a866b1f8ee507bad45a96c53931d68ce1433e589bc7287ed3a076a9917079"
     },
     {
       "path": "docs/INSTALL.md",
-      "bytes": 6574,
-      "sha256": "5ef4aed4c65e6b675051261f9663f309fae4ec3bad1ac29982eda71325c89021"
+      "bytes": 6581,
+      "sha256": "4368a6cf670b6865018b319de015fd6372fd68641c4ad757e37a93a18e3d0ead"
     },
     {
       "path": "docs/NAMING.md",
-      "bytes": 2901,
-      "sha256": "a13529a93dd2f60920d8dc26b8d4b1c68162860fcbedd1e88ace1897f5bb6c26"
+      "bytes": 3058,
+      "sha256": "17bbde528dc16a359882206732d7932668d83d6b2cd4ddd2e9af78d06964793b"
     },
     {
       "path": "docs/TRAINING.md",
-      "bytes": 6621,
-      "sha256": "b3f464ae468ff5c056df75fd71eb2d7e320c3a3d57f3c4dfde127e9c2061ffd2"
+      "bytes": 6726,
+      "sha256": "14956860f7c472d3cc8bc659192286f856460e6f8d7a10bf532c15112f011bd5"
     },
     {
       "path": "docs/assets/badges/arxiv.svg",
@@ -1333,13 +1333,13 @@
     },
     {
       "path": "reproduction/config_fingerprints.json",
-      "bytes": 1177,
-      "sha256": "99e089774ee581839d8f94284a1325f3b7a12f8483d3707f90ab85f5b3e47747"
+      "bytes": 1212,
+      "sha256": "b3b929480b7cdcf4a640d114410ede643fbc173654c3e19363f4c4458d4bf17f"
     },
     {
       "path": "reproduction/libero_checkpoints.json",
-      "bytes": 5709,
-      "sha256": "934fa7e94d68796c6606b8be0468b07c69c81205bbc5ac14138ec031aaa797ff"
+      "bytes": 5751,
+      "sha256": "4d26ef987e3cc120d002cb72cafdf7c4aa0291bed9c96d3d44cbf2e03062fe95"
     },
     {
       "path": "reproduction/libero_plus_paper15_tasks.txt",
@@ -1353,23 +1353,23 @@
     },
     {
       "path": "reproduction/naming.json",
-      "bytes": 41401,
-      "sha256": "45068d0857e54d7b9713a5197abd3289a1e283323de79cba3378d64cbd8b50af"
+      "bytes": 41650,
+      "sha256": "528ea7c846623a36973d62bfdfc11f8beadab5eca39028baa050860be61da45c"
     },
     {
       "path": "reproduction/recipes.json",
-      "bytes": 4054,
-      "sha256": "f9a7cbc31a57f242690351e50ddad8d06b0a222bdcacb544122b1d0c63f54e79"
+      "bytes": 4089,
+      "sha256": "b5ebbb8f606a7e9687774ba14b5a27f14418e4b97264dfe2aaa7e5f60517bc7a"
     },
     {
       "path": "tests/test_naming.py",
-      "bytes": 8832,
-      "sha256": "b001036eaaff8c0b0edbeb120eba27ee139045d85263879a75dc2bb916a241b1"
+      "bytes": 10281,
+      "sha256": "46e20cb9f7d62072eeec65ef6601ee487371d84ec33d089f80dd836195c338fd"
     },
     {
       "path": "tests/test_release_contracts.py",
-      "bytes": 8671,
-      "sha256": "2adce61c8e5396bffef22d963ea4d2952d3534214062ab7925bb8eccc51dc12b"
+      "bytes": 8720,
+      "sha256": "8e1131133d716769fc02588e73ba00af6cf0c9b818747e2291ab4c6d2fe4da6e"
     },
     {
       "path": "tests/test_simulator_assets.py",
@@ -1378,8 +1378,8 @@
     },
     {
       "path": "tests/test_workflow.py",
-      "bytes": 31477,
-      "sha256": "14845308855b737dd9425f012a6beaca59fbd43b23c0dbd15ae6ee0ace52ae00"
+      "bytes": 34306,
+      "sha256": "9617725b5abadec9dcbfdf36da3d666ead1afcf82e2395a7e72aaa6e1fc07ae7"
     },
     {
       "path": "third_party/RoboTwin/LICENSE",
@@ -5048,8 +5048,8 @@
     },
     {
       "path": "tools/compose.py",
-      "bytes": 1602,
-      "sha256": "e24e76b927f69a3f80404c35f69f62b01ef97b32ee4c27a4694fa37388d11e52"
+      "bytes": 1638,
+      "sha256": "dbea2b92b1b11a0ad9707fb9711339a4edbd8b5fc26edac201237c54bc272154"
     },
     {
       "path": "tools/download_assets.py",
@@ -5058,8 +5058,8 @@
     },
     {
       "path": "tools/evaluate_libero.py",
-      "bytes": 13082,
-      "sha256": "e6cb7137cc60e50341f87d549b043541ccd7912bfe504c6717271267cecaf69d"
+      "bytes": 13230,
+      "sha256": "2a4dbcf21c2f21885c1a6d3c34df94fdb4aa95867881db66eb1d701ef6f3c567"
     },
     {
       "path": "tools/init_actions.py",
@@ -5068,13 +5068,13 @@
     },
     {
       "path": "tools/jam.py",
-      "bytes": 24251,
-      "sha256": "f033749a2b9f670cb22ac8874074ac7147dc22cbb87d8568694290b4fb20924c"
+      "bytes": 24437,
+      "sha256": "ee73814280c116cb037d1bdba5b6f16c9210b104a9f5184837e640cb7daf6668"
     },
     {
       "path": "tools/naming.py",
-      "bytes": 2041,
-      "sha256": "4c317ff6eaf10fd80f0c6e69d3a2b73073a62a497e12b6567ec70a4bf0715f01"
+      "bytes": 2272,
+      "sha256": "6462f7d31183d29fb67e050dad710e379416c8343b2926d141a97271ccec60a6"
     },
     {
       "path": "tools/setup_simulators.py",
@@ -5093,8 +5093,8 @@
     },
     {
       "path": "tools/workflow.py",
-      "bytes": 9863,
-      "sha256": "02908c45aa5900770cbf6c80a0a4faaf2e694fae3a204ba34ed1e3fb1ef5a9e9"
+      "bytes": 10097,
+      "sha256": "d6021aff21b2802801660d740bc1ba03cc77ff7e0629ae933befb4e6007c7fe5"
     },
     {
       "path": "website/README.md",

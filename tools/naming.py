@@ -22,6 +22,13 @@ def migration():
     return json.loads((ROOT / 'reproduction/naming.json').read_text())
 
 
+def canonical_recipe(name):
+    """Accept old recipe IDs while exposing only the benchmark-prefixed names."""
+    if not isinstance(name, str):
+        return name
+    return migration().get('recipe_aliases', {}).get(name, name)
+
+
 def canonical_reference(value):
     """Translate exact old task/model names and dotted Python targets only.
 
