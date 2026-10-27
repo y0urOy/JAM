@@ -23,8 +23,8 @@
     },
     {
       "path": "README.md",
-      "bytes": 12312,
-      "sha256": "109816582cd2bbeb04c573347f250be251f3fbe28a4cd8c80c6d34c65aed0591"
+      "bytes": 12373,
+      "sha256": "4a0245c9a43e89c7e9c375d880cd0f2c490702f1bf254c667a6cdca069d4a4a0"
     },
     {
       "path": "THIRD_PARTY_NOTICES.md",
@@ -1238,8 +1238,8 @@
     },
     {
       "path": "docs/assets/badges/arxiv.svg",
-      "bytes": 887,
-      "sha256": "cc43d49241f4238ef937c746bcfe13c1698d3e71e65615dd04e7d10dcfc685ee"
+      "bytes": 911,
+      "sha256": "f4ca92f6af723d7f2c2d45795167ca650f17487a6941a5f43b14d0910476317c"
     },
     {
       "path": "docs/assets/badges/docs.svg",
@@ -5098,8 +5098,8 @@
     },
     {
       "path": "website/README.md",
-      "bytes": 2379,
-      "sha256": "fe3afe14299f72a3b1323d127261906b09da01c8b274726a3814b2b3c451b688"
+      "bytes": 2428,
+      "sha256": "e2c8a109fad4fbdd412d46b505ea54321342efb9bd991db34627dfbd67adb799"
     },
     {
       "path": "website/assets/analysis/attention-wide-hud.jpg",
@@ -5583,13 +5583,13 @@
     },
     {
       "path": "website/index.html",
-      "bytes": 294683,
-      "sha256": "a3a21bb5669cd5735dedeb135e948eb04b217b1292e450a0c11959bbad54461d"
+      "bytes": 294779,
+      "sha256": "6acb3c4842d36666b6546ac62100bf3feeee1baad7a0e17bb0c6b866a6680de2"
     },
     {
       "path": "website/src/app.js",
-      "bytes": 137642,
-      "sha256": "b26a5cff4f9cc9cc531c0c95744a4f605fc59ae5567975f476c9b8109506fbe4"
+      "bytes": 137614,
+      "sha256": "d42ab0199e3e2ed0b1a9357d99773381dd55f143c12f09743928f598559daa40"
     },
     {
       "path": "website/src/build.py",
@@ -5598,8 +5598,8 @@
     },
     {
       "path": "website/src/data.js",
-      "bytes": 76090,
-      "sha256": "9017933a1a12ff4e1e96afe587e01c94f7caaf1b9e591865ed22d85a8d8ed8ca"
+      "bytes": 76133,
+      "sha256": "97fdd71c9a3e81d8530f417bcc7e2502e8e6f2d18ac4ad62cfdefb2e08c8ac8f"
     },
     {
       "path": "website/src/media.json",
@@ -5608,8 +5608,8 @@
     },
     {
       "path": "website/src/page.html",
-      "bytes": 20163,
-      "sha256": "53009920a7d11af9906e0914f14e6b949787f23db10b3fcfb3ea497f57fe9555"
+      "bytes": 20244,
+      "sha256": "805a67771c7a216373cf40631ab16cc01b3799a5a02407f9fa7824de22a34a6c"
     },
     {
       "path": "website/src/styles.css",

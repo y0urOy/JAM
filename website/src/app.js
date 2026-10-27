@@ -460,8 +460,8 @@ function initTrailer() {
   if (!M.trailer) $('#film-play').setAttribute('aria-disabled', 'true');
 }
 
-/* Code / Model / arXiv buttons. A URL makes the button a link; without one (arXiv, until the preprint is out) a click
-   shows a short "coming soon" note. */
+/* Resource buttons open their public URLs. Until arXiv assigns a public identifier,
+   its button shows the submission status. */
 const LINKS = { code: 'https://github.com/y0urOy/JAM', model: 'https://huggingface.co/y0urOy/JAM', arxiv: null };
 function initResources() {
   document.querySelectorAll('.res-btn').forEach(b => {

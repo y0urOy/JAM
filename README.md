@@ -10,7 +10,7 @@
   <p><sup>1</sup>The University of Tokyo &nbsp;&nbsp; <sup>2</sup>National Institute of Informatics</p>
   <p>
     <a href="https://y0uroy.github.io/JAM/"><img src="docs/assets/badges/website.svg" alt="Project page" height="20"></a>
-    <img src="docs/assets/badges/arxiv.svg" alt="arXiv: coming soon" title="arXiv identifier pending" height="20">
+    <img src="docs/assets/badges/arxiv.svg" alt="arXiv: submitted" title="Submitted to arXiv; public identifier pending" height="20">
     <a href="https://huggingface.co/y0urOy/JAM"><img src="docs/assets/badges/models.svg" alt="Hugging Face models" height="20"></a>
     <a href="docs/INSTALL.md"><img src="docs/assets/badges/docs.svg" alt="Documentation" height="20"></a>
   </p>
@@ -261,6 +261,7 @@ If you find our work helpful, please consider citing:
   title  = {Vision-Language-Action or World-Action? Just Action Models},
   author = {Yu, Yonghao and Huang, Lang and Li, Runyi and Yamasaki, Toshihiko},
   year   = {2026},
+  note   = {Preprint submitted to arXiv},
   url    = {https://y0uroy.github.io/JAM/}
 }
 ```
