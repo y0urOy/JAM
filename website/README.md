@@ -31,7 +31,7 @@ python3 website/src/build.py --check
 
 For static hosting, publish `index.html` and `assets/`. GitHub Actions publishes only these files to https://y0uroy.github.io/JAM/ through `.github/workflows/pages.yml`.
 
-The video loader fetches the trailer as a Blob before playback so seeking works on hosts without HTTP Range support. LIBERO rollouts keep one frame per 20 Hz control step; the RoboTwin pairs keep one frame per control step and play at 10 control steps per second. The paper has been submitted to arXiv and is processing; its public identifier is pending.
+The video loader fetches the trailer as a Blob before playback so seeking works on hosts without HTTP Range support. LIBERO rollouts keep one frame per 20 Hz control step; the RoboTwin pairs keep one frame per control step and play at 10 control steps per second. The paper is available as [arXiv:2610.37219](https://arxiv.org/abs/2610.37219).
 
 On smaller screens, the contents menu links directly to all ten sections. Probe and attention players can expand without reloading their video; background playback pauses while a viewer is open or the tab is hidden. Save-Data and reduced-motion preferences suppress autoplay. Full benchmark and paired-category tables export their currently displayed values as CSV. The Code and Model buttons link to the GitHub and Hugging Face repositories.
 

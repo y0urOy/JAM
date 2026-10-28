@@ -71,6 +71,15 @@ def build(site):
 <meta name="theme-color" content="#080b12">
 <title>JAM · Just Action Models</title>
 <meta name="description" content="{description}">
+<meta name="citation_title" content="Vision-Language-Action or World-Action? Just Action Models">
+<meta name="citation_author" content="Yonghao Yu">
+<meta name="citation_author" content="Lang Huang">
+<meta name="citation_author" content="Runyi Li">
+<meta name="citation_author" content="Toshihiko Yamasaki">
+<meta name="citation_publication_date" content="2026/10/27">
+<meta name="citation_arxiv_id" content="2610.37219">
+<meta name="citation_abstract_html_url" content="https://arxiv.org/abs/2610.37219">
+<meta name="citation_pdf_url" content="https://arxiv.org/pdf/2610.37219">
 <link rel="canonical" href="{ORIGIN}/">
 <meta property="og:type" content="website">
 <meta property="og:title" content="JAM · Just Action Models">

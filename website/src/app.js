@@ -460,17 +460,11 @@ function initTrailer() {
   if (!M.trailer) $('#film-play').setAttribute('aria-disabled', 'true');
 }
 
-/* Resource buttons open their public URLs. Until arXiv assigns a public identifier,
-   its button shows the submission status. */
-const LINKS = { code: 'https://github.com/y0urOy/JAM', model: 'https://huggingface.co/y0urOy/JAM', arxiv: null };
+/* Resource links are also present in the HTML for access before JavaScript loads. */
+const LINKS = { code: 'https://github.com/y0urOy/JAM', model: 'https://huggingface.co/y0urOy/JAM', arxiv: 'https://arxiv.org/abs/2610.37219' };
 function initResources() {
-  document.querySelectorAll('.res-btn').forEach(b => {
-    const url = LINKS[b.dataset.res];
-    if (url) {
-      const a = H('a', { cls: b.className, href: url, target: '_blank', rel: 'noopener' });
-      a.innerHTML = b.innerHTML;
-      b.replaceWith(a);
-    } else b.addEventListener('click', () => flashTip(b, b.dataset.soon || 'Coming soon'));
+  document.querySelectorAll('.res-btn').forEach(a => {
+    a.href = LINKS[a.dataset.res];
   });
   // the JAM mark in the top bar opens the code repository
   Object.assign($('.brand'), { href: LINKS.code, target: '_blank', rel: 'noopener' });

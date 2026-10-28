@@ -1,0 +1,32 @@
+cff-version: 1.2.0
+message: "If you use JAM, please cite the paper below."
+type: software
+title: "JAM: Just Action Models"
+authors:
+  - family-names: Yu
+    given-names: Yonghao
+  - family-names: Huang
+    given-names: Lang
+  - family-names: Li
+    given-names: Runyi
+  - family-names: Yamasaki
+    given-names: Toshihiko
+repository-code: "https://github.com/y0urOy/JAM"
+url: "https://y0uroy.github.io/JAM/"
+license: MIT
+preferred-citation:
+  type: article
+  title: "Vision-Language-Action or World-Action? Just Action Models"
+  authors:
+    - family-names: Yu
+      given-names: Yonghao
+    - family-names: Huang
+      given-names: Lang
+    - family-names: Li
+      given-names: Runyi
+    - family-names: Yamasaki
+      given-names: Toshihiko
+  journal: arXiv
+  year: 2026
+  doi: "10.48550/arXiv.2610.37219"
+  url: "https://arxiv.org/abs/2610.37219"
