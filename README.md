@@ -257,13 +257,11 @@ datasets and simulator assets keep their own terms.
 If you find our work helpful, please consider citing:
 
 ```bibtex
-@misc{yu2026jam,
-  title  = {Vision-Language-Action or World-Action? Just Action Models},
-  author = {Yu, Yonghao and Huang, Lang and Li, Runyi and Yamasaki, Toshihiko},
-  year   = {2026},
-  eprint = {2610.37219},
-  archivePrefix = {arXiv},
-  primaryClass = {cs.CV},
-  url    = {https://arxiv.org/abs/2610.37219}
+@article{yu2026jam,
+  title={Vision-Language-Action or World-Action? Just Action Models},
+  author={Yonghao Yu and Lang Huang and Runyi Li and Toshihiko Yamasaki},
+  journal={arXiv preprint arXiv:2610.37219},
+  year={2026},
+  url={https://arxiv.org/abs/2610.37219}
 }
 ```

@@ -18,8 +18,8 @@
     },
     {
       "path": "CITATION.cff",
-      "bytes": 851,
-      "sha256": "0bbbb45fe40a24c61055dce9c6e3895a544170b50d27fcab8afd39316de284f3"
+      "bytes": 879,
+      "sha256": "439896896e2e971dc361c4eb53c08d89cfb78180de223f46bfaffa3559ec193d"
     },
     {
       "path": "LICENSE",
@@ -28,8 +28,8 @@
     },
     {
       "path": "README.md",
-      "bytes": 12406,
-      "sha256": "8bd06530f7df634130c62994cbee85fcc9108d350c1a83197fdf8019a979fb1c"
+      "bytes": 12358,
+      "sha256": "f396e089462a7f17a49b2d9d30941b76400f7202edbf8aab090df46beb04de32"
     },
     {
       "path": "THIRD_PARTY_NOTICES.md",
@@ -5588,8 +5588,8 @@
     },
     {
       "path": "website/index.html",
-      "bytes": 295110,
-      "sha256": "9bb0eb5452884a8648bb2e857c1d735576d5433b007f8398da74e7e18ea97776"
+      "bytes": 295060,
+      "sha256": "1f3db64b45ae91daaaf769672bb97dc218387aa01bdcceafabe35c326f8da4b2"
     },
     {
       "path": "website/src/app.js",
@@ -5603,8 +5603,8 @@
     },
     {
       "path": "website/src/data.js",
-      "bytes": 76174,
-      "sha256": "49697958a928f38c36635cf3e7e3fab2927e3b5f0ddcf8647a23d7bd4753cfe4"
+      "bytes": 76124,
+      "sha256": "0bf9a1fd9398615b5980da1a69372c8c742d8af228b0c92c14b739b43c02b348"
     },
     {
       "path": "website/src/media.json",
